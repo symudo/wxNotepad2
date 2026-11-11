@@ -80,7 +80,6 @@ public:
         // 工具菜单
         MENU_GLOBAL_SETTINGS,
         MENU_EDIT_CONFIGFILE,
-        MENU_DONATE,
         MENU_CHECK_UPDATE,
         MENU_HELP_TOPICS,
 

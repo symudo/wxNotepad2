@@ -239,7 +239,6 @@ void MainFrame::CreatMenuBar() {
     // 帮助菜单
     wxMenu* helpMenu = new wxMenu;
     helpMenu->Append(MENU_HELP_TOPICS, L"帮助主题(&H)\tF1");
-    helpMenu->Append(MENU_DONATE, L"赞助(&D)...");
     helpMenu->Append(MENU_CHECK_UPDATE, L"检查更新(&U)...");
     helpMenu->Append(ID_About, L"关于(&A)...");
 
@@ -612,7 +611,6 @@ void MainFrame::InitBind() {
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {auto app = GetMyAppInstance(); wxLaunchDefaultApplication(app->GetConfigFilePath()); }, MENU_EDIT_CONFIGFILE);
     //帮助菜单
     Bind(wxEVT_MENU, &MainFrame::OnAbout, this, ID_About);
-    Bind(wxEVT_MENU, [this](wxCommandEvent&) {wxLaunchDefaultBrowser(L"https://afdian.com/a/ibulis/plan"); }, MENU_DONATE);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {wxLaunchDefaultApplication(L"wxNotepad2帮助.md"); }, MENU_HELP_TOPICS);
     Bind(wxEVT_MENU, &MainFrame::OnCheckUpdate, this, MENU_CHECK_UPDATE);
     //UpdateUI事件
