@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>wxNotepad2 配置中心</title>
+    <style>
+        body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.6; color: #333; max-width: 850px; margin: 40px auto; padding: 0 20px; background: #f4f7f9; }
+        h1 { padding-bottom: 10px; color: #0277bd; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .code-container { margin-top: 15px; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; }
+        .code-header { background: #eee; padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; }
+        pre { margin: 0; padding: 15px; background: #272822; color: #f8f8f2; overflow-x: auto; font-size: 13px; font-family: Consolas, monospace; display: none; white-space: pre-wrap; word-break: break-all; }
+        pre.visible { display: block; }
+        .btn { padding: 8px 15px; border-radius: 4px; cursor: pointer; border: none; font-size: 13px; font-weight: bold; }
+        .btn-copy { background: #4caf50; color: white; }
+        .btn-toggle { background: #757575; color: white; }
+        .bookmarklet { display: inline-block; background: #fff; color: #0277bd; padding: 10px 20px; border: 2px dashed #03a9f4; cursor: move; text-decoration: none; border-radius: 4px; font-weight: bold; margin-top: 10px; }
+        .status-msg { font-size: 0.8em; margin-left: 10px; transition: opacity 0.3s; opacity: 0; }
+        .footer-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 10px; }
+        .link-card { display: flex; align-items: center; justify-content: center; background: #fff; border: 1px solid #ddd; padding: 12px; border-radius: 6px; text-decoration: none; color: #333; transition: all 0.2s; }
+        .link-card:hover { border-color: #03a9f4; background: #f1faff; transform: translateY(-2px); }
+    </style>
+</head>
+<body>
+
+    <h1>wxNotepad2 浏览器服务配置</h1>
+
+    <div class="card">
+        <h2>1. 安装油猴脚本 (推荐)</h2>
+        <p>复制代码，并在 Tampermonkey 中创建新脚本粘贴。当前服务端口：<strong>{{APP_PORT}}</strong></p>
+        <div class="code-container">
+            <div class="code-header">
+                <span>wxNotepad2_Assistant.user.js</span>
+                <div>
+                    <button class="btn btn-copy" onclick="copyScript()">复制全文</button>
+                    <button id="toggle-btn" class="btn btn-toggle" onclick="toggleCode()">显示代码</button>
+                    <span id="script-status" class="status-msg" style="color: green;">已复制!</span>
+                </div>
+            </div>
+           <pre id="script-display">// ==UserScript==
+// @name wxNotepad2 网页助手
+// @namespace http://tampermonkey.net/
+// @version 1.7
+// @description 将网页内容一键抓取至本地 wxNotepad2
+// @author ibulis
+// @match *://*/*
+// @exclude http://127.0.0.1/*
+// @exclude http://localhost/*
+// @grant GM_xmlhttpRequest
+// @connect 127.0.0.1
+// ==/UserScript==
+(function() {
+    'use strict';
+    const SERVER_URL = 'http://127.0.0.1:{{APP_PORT}}/api';
+    const API_TOKEN = '{{APP_TOKEN}}';
+    function gmRequest(opts) {
+        return new Promise((res, rej) => {
+            GM_xmlhttpRequest({
+                method: opts.method || 'GET',
+                url: opts.url,
+                headers: { 'X-Notepad-Token': API_TOKEN, 'Content-Type': 'text/plain' },
+                data: opts.body || '',
+                onload: (r) => {
+                    try { res({ status: r.status, data: JSON.parse(r.responseText) }); }
+                    catch(e) { res({ status: r.status, data: { status: r.responseText } }); }
+                },
+                onerror: rej
+            });
+        });
+    }
+    async function init() {
+        try { const r = await gmRequest({ method: 'POST', url: SERVER_URL }); if(r.status !== 200 && r.status !== 204) return; } catch(e){ return; }
+        const container = document.createElement('div');
+        const shadow = container.attachShadow({mode: 'closed'});
+        document.body.appendChild(container);
+        const style = document.createElement('style');
+        style.textContent = '#ball { position: fixed; right: 20px; top: 150px; width: 44px; height: 44px; background: #03a9f4; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: move; z-index: 2147483647; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-size: 13px; user-select: none; font-family: sans-serif; } #ball:hover #ball-close { display: flex; } #ball-close { position: absolute; top: -5px; right: -5px; width: 18px; height: 18px; background: #ff5252; color: white; border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; border: 1px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); } #panel { position: fixed; right: 20px; top: 20px; width: 340px; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 15px; z-index: 2147483647; box-shadow: 0 8px 24px rgba(0,0,0,0.2); display: none; font-family: sans-serif; color: #333; } .row { margin-bottom: 10px; } input, textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; outline: none; } textarea { height: 150px; resize: vertical; min-height: 50px; } .btns { display: flex; gap: 8px; } button { flex: 1; padding: 8px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #f5f5f5; font-size: 12px; transition: background 0.2s; } button:hover { background: #e0e0e0; } #status { margin-top: 10px; font-size: 12px; color: #666; text-align: center; min-height: 1.2em; } .p-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-weight: bold; border-bottom: 1px solid #eee; padding-bottom: 5px; }';
+        shadow.appendChild(style);
+        const ball = document.createElement('div');
+        ball.id = 'ball'; ball.innerHTML = '笔记&lt;div id="ball-close"&gt;×&lt;/div&gt;';
+       
+        const panel = document.createElement('div');
+        panel.id = 'panel';
+        panel.innerHTML = '&lt;div class="p-header"&gt;&lt;span&gt;wxNotepad2 助手&lt;/span&gt;&lt;span id="p-close" style="cursor:pointer; font-size: 20px; color: #999;"&gt;×&lt;/span&gt;&lt;/div&gt;' +
+            '&lt;div class="row"&gt;&lt;input type="text" id="t" placeholder="标题"&gt;&lt;/div&gt;' +
+            '&lt;div class="row"&gt;&lt;textarea id="n" placeholder="内容..."&gt;&lt;/textarea&gt;&lt;/div&gt;' +
+            '&lt;div class="btns"&gt;&lt;button id="save"&gt;💾 存新&lt;/button&gt;&lt;button id="app"&gt;➕ 追加&lt;/button&gt;&lt;button id="get" style="background:#e3f2fd; border-color:#90caf9"&gt;🔍 获取&lt;/button&gt;&lt;/div&gt;' +
+            '&lt;div id="status"&gt;&lt;/div&gt;';
+       
+        shadow.appendChild(ball); shadow.appendChild(panel);
+        const tEl = panel.querySelector('#t'), nEl = panel.querySelector('#n'), sEl = panel.querySelector('#status');
+        const bClose = ball.querySelector('#ball-close');
+        let isMoving = false, startX, startY;
+        ball.addEventListener('mousedown', e => {
+            if(e.target === bClose) return;
+            isMoving = false; startX = e.clientX; startY = e.clientY;
+            const initX = ball.offsetLeft, initY = ball.offsetTop;
+            const moveHandler = (ev) => {
+                const dx = ev.clientX - startX, dy = ev.clientY - startY;
+                if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+                    isMoving = true;
+                    ball.style.left = (initX + dx) + 'px';
+                    ball.style.top = (initY + dy) + 'px';
+                    ball.style.right = 'auto';
+                }
+            };
+            const upHandler = () => {
+                document.removeEventListener('mousemove', moveHandler);
+                document.removeEventListener('mouseup', upHandler);
+            };
+            document.addEventListener('mousemove', moveHandler);
+            document.addEventListener('mouseup', upHandler);
+        });
+        ball.addEventListener('click', (e) => {
+            if (isMoving) return;
+            panel.style.display = 'block'; ball.style.display = 'none';
+            tEl.value = document.title; nEl.value = window.getSelection().toString();
+        });
+        bClose.addEventListener('click', (e) => { e.stopPropagation(); container.remove(); });
+        panel.querySelector('#p-close').onclick = () => { panel.style.display = 'none'; ball.style.display = 'flex'; };
+        const api = async (action) => {
+            sEl.innerText = '正在通信...';
+            const query = new URLSearchParams({ action, url: location.href, title: tEl.value });
+            try {
+                const r = await gmRequest({ method: 'POST', url: SERVER_URL + '?' + query.toString(), body: nEl.value });
+                if (action === 'get_by_url' && r.status === 200) {
+                    tEl.value = r.data.title || tEl.value;
+                    nEl.value = r.data.content || '';
+                }
+                sEl.innerText = r.data.status || '成功';
+            } catch(e) { sEl.innerText = '错误: 无法连接服务器'; }
+        };
+        panel.querySelector('#save').onclick = () => api('save_by_url');
+        panel.querySelector('#app').onclick = () => api('append_to_note');
+        panel.querySelector('#get').onclick = () => api('get_by_url');
+    }
+    init();
+})();</pre>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>2. 安装 Bookmarklet</h2>
+		<p>将下方按钮拖拽到浏览器书签栏。</p>
+        <a class="bookmarklet" href="javascript:(function(){const SERVER_URL='http://127.0.0.1:{{APP_PORT}}/api',TOKEN='{{APP_TOKEN}}';if(document.getElementById('wx-bml')){document.getElementById('wx-bml').remove();return;}const c=document.createElement('div');c.id='wx-bml';const s=c.attachShadow({mode:'open'});document.body.appendChild(c);const st=document.createElement('style');st.textContent='#p{position:fixed;right:20px;top:20px;width:340px;background:#fff;border:1px solid #ccc;border-radius:8px;padding:15px;z-index:2147483647;box-shadow:0 8px 24px rgba(0,0,0,0.2);font-family:sans-serif;color:#333;}.r{margin-bottom:8px;}input,textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #ddd;border-radius:4px;}textarea{height:150px;resize:vertical;min-height:50px;}.b{display:flex;gap:5px;}button{flex:1;padding:8px;cursor:pointer;font-size:12px;}#st{text-align:center;font-size:12px;margin-top:10px;color:#666;}';s.appendChild(st);const p=document.createElement('div');p.id='p';p.innerHTML='<div style=&quot;display:flex;justify-content:space-between;margin-bottom:10px;&quot;><strong>wxNotepad2 BML</strong><span id=&quot;x&quot; style=&quot;cursor:pointer;font-weight:bold;padding:0 5px;&quot;>×</span></div><div class=&quot;r&quot;><input id=&quot;t&quot; type=&quot;text&quot;></div><div class=&quot;r&quot;><textarea id=&quot;n&quot;></textarea></div><div class=&quot;b&quot;><button id=&quot;s&quot;>💾 存新</button><button id=&quot;a&quot;>➕ 追加</button><button id=&quot;g&quot; style=&quot;background:#e3f2fd&quot;>🔍 获取</button></div><div id=&quot;st&quot;></div>';s.appendChild(p);const tE=p.querySelector(&quot;#t&quot;),nE=p.querySelector(&quot;#n&quot;),sE=p.querySelector(&quot;#st&quot;);tE.value=document.title;nE.value=window.getSelection().toString();const req=async(act)=>{sE.innerText=&quot;发送中...&quot;;const q=new URLSearchParams({action:act,url:location.href,title:tE.value});try{const r=await fetch(SERVER_URL+'?'+q.toString(),{method:&quot;POST&quot;,mode:&quot;cors&quot;,headers:{&quot;X-Notepad-Token&quot;:TOKEN,&quot;Content-Type&quot;:&quot;text/plain&quot;},body:nE.value});const d=await r.json();if(act===&quot;get_by_url&quot;&&r.ok){tE.value=d.title||tE.value;nE.value=d.content||&quot;&quot;;}sE.innerText=d.status||&quot;操作成功&quot;;}catch(e){sE.innerText=&quot;❌ 失败：检查CORS或服务器&quot;;}};p.querySelector(&quot;#x&quot;).onclick=()=>c.remove();p.querySelector(&quot;#s&quot;).onclick=()=>req(&quot;save_by_url&quot;);p.querySelector(&quot;#a&quot;).onclick=()=>req(&quot;append_to_note&quot;);p.querySelector(&quot;#g&quot;).onclick=()=>req(&quot;get_by_url&quot;);})();">拖拽到书签栏 (wxNotepad2)</a>
+    </div>
+
+    <div class="card">
+        <h2>链接</h2>
+        <div class="footer-links">
+            <a href="https://codeberg.org/ibulis/wxNotepad2" target="_blank" class="link-card">💻 项目主页</a>
+            <a href="https://codeberg.org/ibulis/wxNotepad2/issues" target="_blank" class="link-card">🐛 反馈</a>
+            <a href="https://afdian.com/a/ibulis/plan" target="_blank" class="link-card">☕ 捐助支持</a>
+        </div>
+    </div>
+
+    <script>
+        function toggleCode() {
+            const scriptDisplay = document.getElementById('script-display');
+            const btn = document.getElementById('toggle-btn');
+            const isVisible = scriptDisplay.classList.toggle('visible');
+            btn.innerText = isVisible ? '折叠代码' : '显示代码';
+        }
+
+        function copyScript() {
+            const code = document.getElementById('script-display').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                const status = document.getElementById('script-status');
+                status.style.opacity = 1;
+                setTimeout(() => status.style.opacity = 0, 2000);
+            });
+        }
+    </script>
+</body>
+</html>

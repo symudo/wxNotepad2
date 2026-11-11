@@ -1,0 +1,97 @@
+/*
+**  数据库包含表：PATHS、NOTES、TAGS、PATHS_TAGS
+**  PATHS，包含节点创建和节点内容信息，字段：
+**      ID：节点ID，主键，自增
+**      NAME：节点名称，非空
+**      PARENT_ID：父节点ID，-2为文件夹，-3为回收站
+**      TYPE：低位：节点类型，1=文件夹，0=笔记，对应bool isFolder；节点打开状态，1=打开（可扩展）
+**      NODE_ORDER：节点顺序
+**      STATEICON：节点图标，8位为0时以enum TreeIcon为准；否则，1~4位储存图标类型，5~7位储存颜色（可扩展）
+**      NOTE_ID：笔记ID，-1表示无关联笔记
+**      TRASHED：是否在回收站，0否，1是，对应bool isTrashed.（可扩展）
+*   用于表示extension的PATHS记录：
+*       未使用或定值：PARENT_ID=-11，TYPE=0,TRASHED=1（不被最近列表收录，直接删除）
+*       保持原意：ID（范围1-32），NAME， NODE_ORDER,NOTE_ID：笔记ID
+*       STATEICON：节点图标、扩展类型，以enum TreeIcon为准
+**  NOTES表，包含笔记内容和信息，字段：
+**      ID：笔记ID，主键，自增
+**      PATH_ID：笔记所属路径ID，外键，关联PATHS表的ID
+**      CONTENT：笔记内容，TEXT类型，非空
+*       STYLEDATA：笔记样式数据，BLOB类型，默认为空
+**      CREATE_TIME：创建时DEFAULT
+**      MODIFY_TIME：修改时，指定DEFAULT
+**      ACCESS_TIME：读取时，UPDATE DEFAULT
+**  TAGS表，字段：
+**      ID：标签ID，主键，自增
+**      TAG_NAME：标签名称，非空
+**  PATHS_TAGS表，字段：
+**      PATH_ID：路径ID，外键，关联PATHS表的ID
+**      TAG_ID：标签ID，外键，关联TAGS表的ID
+**      约束：组合唯一。触发器删除。
+*/
+
+#define SQLITE_CREATE_TABLE_PATHS \
+    "CREATE TABLE IF NOT EXISTS PATHS (" \
+    "   ID INTEGER PRIMARY KEY AUTOINCREMENT," \
+    "   NAME TEXT NOT NULL," \
+    "   PARENT_ID INTEGER NOT NULL," \
+    "   TYPE INTEGER NOT NULL," /* 1=文件夹, 0=笔记；2=节点展开；4=记录最后打开节点 */ \
+    "   NODE_ORDER INTEGER NOT NULL DEFAULT 0," /* 节点顺序 */ \
+    "   STATEICON INTEGER NOT NULL," /* 以enum TreeIcon为准 */ \
+    "   NOTE_ID INTEGER NOT NULL DEFAULT -1," /* 笔记ID，-1表示无关联笔记 */ \
+    "   TRASHED INTEGER NOT NULL DEFAULT 0" /* 是否在回收站，0=否, 1=是 */ \
+    ");"
+
+#define SQLITE_CREATE_TABLE_NOTES \
+    "CREATE TABLE IF NOT EXISTS NOTES (" \
+    "   ID INTEGER PRIMARY KEY AUTOINCREMENT," \
+    "   PATH_ID INTEGER NOT NULL," \
+    "   CONTENT TEXT," \
+    "   STYLEDATA BLOB DEFAULT NULL," \
+    "   CREATE_TIME DATETIME DEFAULT CURRENT_TIMESTAMP," \
+    "   MODIFY_TIME DATETIME DEFAULT CURRENT_TIMESTAMP," \
+    "   ACCESS_TIME DATETIME DEFAULT CURRENT_TIMESTAMP," \
+    "   FOREIGN KEY (PATH_ID) REFERENCES PATHS(ID) ON DELETE CASCADE" \
+    ");"
+
+#define SQLITE_NOTES_ADD_URL \
+    "ALTER TABLE NOTES ADD COLUMN URL TEXT;" \
+    "CREATE INDEX IF NOT EXISTS IDX_NOTES_URL ON NOTES(URL);"
+
+#define SQLITE_CREATE_TABLE_TAGS \
+    "CREATE TABLE IF NOT EXISTS TAGS (" \
+    "   ID INTEGER PRIMARY KEY AUTOINCREMENT," \
+    "   TAG_NAME TEXT NOT NULL UNIQUE" \
+    ");"
+
+#define SQLITE_CREATE_TABLE_PATHS_TAGS \
+    "CREATE TABLE IF NOT EXISTS PATHS_TAGS (" \
+    "   PATH_ID INTEGER NOT NULL," \
+    "   TAG_ID INTEGER NOT NULL," \
+    "   PRIMARY KEY (PATH_ID, TAG_ID)," \
+    "   FOREIGN KEY (PATH_ID) REFERENCES PATHS(ID) ON DELETE CASCADE," \
+    "   FOREIGN KEY (TAG_ID) REFERENCES TAGS(ID) ON DELETE CASCADE" \
+    ");"
+
+#define SQLITE_CREATE_VIRTUAL_TABLE_NOTES_FTS \
+    "CREATE VIRTUAL TABLE IF NOT EXISTS NOTES_FTS USING fts5(" \
+    "CONTENT," \
+    "TOKENIZE='char',"   /*自定义分词器*/ \
+    "CONTENT='NOTES', CONTENT_ROWID='ID'" \
+    ");"
+
+#define SQLITE_CREATE_TRIGGER_NOTES_AI \
+    "CREATE TRIGGER IF NOT EXISTS TRIGGER_NOTES_AI AFTER INSERT ON NOTES BEGIN " \
+    "INSERT INTO NOTES_FTS(rowid, CONTENT) VALUES (new.ID, new.CONTENT);" \
+    "END;"
+
+#define SQLITE_CREATE_TRIGGER_NOTES_AU \
+    "CREATE TRIGGER IF NOT EXISTS TRIGGER_NOTES_AU AFTER UPDATE ON NOTES BEGIN " \
+    "  INSERT INTO NOTES_FTS(NOTES_FTS, rowid, CONTENT) VALUES('delete', old.ID, old.CONTENT);" \
+    "  INSERT INTO NOTES_FTS(rowid, CONTENT) VALUES(new.ID, new.CONTENT);" \
+    "END;"
+
+#define SQLITE_CREATE_TRIGGER_NOTES_AD \
+    "CREATE TRIGGER IF NOT EXISTS TRIGGER_NOTES_AD AFTER DELETE ON NOTES BEGIN " \
+    "DELETE FROM NOTES_FTS WHERE rowid = old.ID;" \
+    "END;"

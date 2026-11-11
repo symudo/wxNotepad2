@@ -1,0 +1,15 @@
+{
+  "dependencies": [
+    "oniguruma",
+    "wxwidgets",
+    "tinyexpr",
+    "picojson",
+    "mongoose",
+    {
+      "name": "sqlite3",
+      "features": [ "fts5" ]
+    }
+
+
+  ]
+}

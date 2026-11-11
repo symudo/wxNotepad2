@@ -1,0 +1,113 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC x64 developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Resolve vcpkg and ninja paths
+        id: vcpkg
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            $vsNinja = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022" -Filter "ninja.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($vsNinja) {
+              $vsNinja.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            } else {
+              throw "ninja.exe not found"
+            }
+          }
+          $vcpkgRoot = if ($env:VCPKG_INSTALLATION_ROOT) {
+            $env:VCPKG_INSTALLATION_ROOT
+          } elseif ($env:VCPKG_ROOT) {
+            $env:VCPKG_ROOT
+          } else {
+            "C:\vcpkg"
+          }
+          $toolchain = Join-Path $vcpkgRoot "scripts\buildsystems\vcpkg.cmake"
+          if (-not (Test-Path $toolchain)) {
+            throw "vcpkg toolchain not found: $toolchain"
+          }
+          $cacheDir = Join-Path $env:LOCALAPPDATA "vcpkg\archives"
+          New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+          echo "TOOLCHAIN_FILE=$($toolchain -replace '\\', '/')" >> $env:GITHUB_OUTPUT
+          echo "CACHE_DIR=$cacheDir" >> $env:GITHUB_OUTPUT
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.vcpkg.outputs.CACHE_DIR }}
+          key: ${{ runner.os }}-vcpkg-x64-static-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-x64-static-
+
+      - name: Configure CMake (Static Release)
+        shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ steps.vcpkg.outputs.CACHE_DIR }},readwrite"
+        run: |
+          cmake -B build -S . -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.vcpkg.outputs.TOOLCHAIN_FILE }}" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE=TRUE `
+            -DCMAKE_CXX_FLAGS_RELEASE="/Os /Ob2 /DNDEBUG" `
+            -DCMAKE_EXE_LINKER_FLAGS_RELEASE="/OPT:REF /OPT:ICF /DEBUG:NONE"
+
+      - name: Build wxNotepad2
+        shell: pwsh
+        run: cmake --build build --config Release --parallel
+
+      - name: Package release artifacts
+        shell: pwsh
+        run: |
+          $exePath = "build\wxNotepad2.exe"
+          if (-not (Test-Path $exePath)) {
+            throw "Build succeeded but $exePath was not found."
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item $exePath dist\
+          if (Test-Path "wxNotepad2帮助.md") {
+            Copy-Item "wxNotepad2帮助.md" dist\
+          }
+          Compress-Archive -Path dist\* -DestinationPath wxNotepad2-win64.zip -Force
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wxNotepad2-win64
+          path: |
+            dist/wxNotepad2.exe
+            wxNotepad2-win64.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release on tag push
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/wxNotepad2.exe
+            wxNotepad2-win64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
