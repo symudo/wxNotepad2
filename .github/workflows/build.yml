@@ -53,8 +53,9 @@ jobs:
           echo "TOOLCHAIN_FILE=$($toolchain -replace '\\', '/')" >> $env:GITHUB_OUTPUT
           echo "CACHE_DIR=$cacheDir" >> $env:GITHUB_OUTPUT
 
-      - name: Cache vcpkg binary archives
-        uses: actions/cache@v4
+      - name: Restore vcpkg binary archives
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ steps.vcpkg.outputs.CACHE_DIR }}
           key: ${{ runner.os }}-vcpkg-x64-static-${{ hashFiles('vcpkg.json') }}
@@ -74,6 +75,13 @@ jobs:
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE=TRUE `
             -DCMAKE_CXX_FLAGS_RELEASE="/Os /Ob2 /DNDEBUG" `
             -DCMAKE_EXE_LINKER_FLAGS_RELEASE="/OPT:REF /OPT:ICF /DEBUG:NONE"
+
+      - name: Save vcpkg binary archives
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.vcpkg.outputs.CACHE_DIR }}
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Build wxNotepad2
         shell: pwsh

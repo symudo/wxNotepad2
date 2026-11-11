@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/utf-8> $<$<CXX_COMPILER_ID:GNU>:-finput-charset=UTF-8 -fexec-charset=GBK>)
+add_compile_options(
+    $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
+    $<$<CXX_COMPILER_ID:GNU>:-finput-charset=UTF-8>
+    $<$<CXX_COMPILER_ID:GNU>:-fexec-charset=GBK>
+)
 project(wxNotepad2 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_C_STANDARD 23)
