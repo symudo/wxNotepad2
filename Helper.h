@@ -120,11 +120,17 @@ inline wxFont ReadFontFromConfig() {
     config.SetPath("/Scintilla/Font");
     long pointSize = 10;
     config.Read("PointSize", &pointSize);
+    if (pointSize <= 0) {
+        pointSize = 10;
+    }
     wxString faceName = wxEmptyString;
     config.Read("FaceName", &faceName);
     config.SetPath("/");
 
     wxFont font(pointSize, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, faceName);
+    if (!font.IsOk()) {
+        font = wxFont(wxFontInfo(pointSize));
+    }
     return font;
 }
 

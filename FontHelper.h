@@ -114,10 +114,14 @@ inline DirectWriteFactoryRAII::Cleanup DirectWriteFactoryRAII::cleanup;
  * 如果输入已经是英文名或转换失败，则返回原始 wxFont 的拷贝。
  */
 inline wxFont ConvertLocalizedFontToEnglish(const wxFont& font){
+    if (!font.IsOk()){
+        return font;
+    }
+
     wxString localizedName = font.GetFaceName();
 
-    // 如果已经是英文名（ASCII 字符），则无需处理，直接返回原始字体的拷贝
-    if (localizedName.IsAscii()){
+    // 如果为空或已经是英文名（ASCII 字符），则无需处理，直接返回原始字体的拷贝
+    if (localizedName.IsEmpty() || localizedName.IsAscii()){
         return font;
     }
 
@@ -177,42 +181,13 @@ inline wxFont ConvertLocalizedFontToEnglish(const wxFont& font){
 
         if (SUCCEEDED(hr)){
             wxString standardEnglishName(wsName.c_str());
-
-            // 6. **【修复：使用兼容的 wxWidgets 方法修改 FaceName】**
-            // 这一步依赖于 wxNativeFontInfo 构造函数可以接受 wxFont。
-            // 必须使用一个新的 wxNativeFontInfo 实例来替换 FaceName。
-
-            // a) 获取原始字体的所有信息（除了 FaceName）
-            const wxNativeFontInfo* originalInfo = font.GetNativeFontInfo();
-
-            // b) 创建一个新的 wxNativeFontInfo 实例，并使用新的 FaceName
-            // wxNativeFontInfo 的构造函数可以接受 LOGFONTW 的指针（在 MSW 上）
-            // 但最安全的方式是使用 wxFont 的各种属性创建新的 wxNativeFontInfo 
-            // 
-            // *最好的办法是使用一个 wxFont 的拷贝，然后用其公共属性进行修改*
-
-            // 由于 wxFont 没有公共方法 SetFaceName，我们只能通过 wxNativeFontInfo 来间接修改。
-
-            // 在 Windows 上，wxNativeFontInfo 内部通常包含 LOGFONTW 结构体。
-            // 我们可以利用 wxNativeFontInfo 的平台相关特性来完成修改。
-
-            // 【方法：使用 wxNativeFontInfo 拷贝，然后修改其内部 LOGFONT 字段】
-            // wxNativeFontInfo::GetNativeFontInfo() 返回的指针，在 wxMSW 中通常是指向 LOGFONTW 的。
-
-            // 1. 创建一个 wxNativeFontInfo 的拷贝
-            wxNativeFontInfo newNativeInfo = *originalInfo;
-
-            // 2. 将其转换为 LOGFONTW 指针（这是 MSW 平台依赖的，但非常高效且常见）
-            // 我们不能直接调用 ToLogFont，但我们可以将 wxNativeFontInfo 强制转换为 LOGFONTW 指针进行修改
-            // 确保使用 WCHAR 版本 LOGFONTW，因为 wxWidgets 在 Windows 上使用 Unicode
-            LOGFONTW* lf = (LOGFONTW*)(const_cast<wxNativeFontInfo*>(&newNativeInfo));
-
-            // 3. 修改 lfFaceName 字段
-            wcsncpy(lf->lfFaceName, standardEnglishName.wc_str(), LF_FACESIZE);
-            lf->lfFaceName[LF_FACESIZE - 1] = L'\0';
-
-            // 4. 从修改后的 newNativeInfo 创建新的 wxFont
-            return wxFont(newNativeInfo);
+            if (!standardEnglishName.IsEmpty()){
+                // 使用 wxFont 标准公开接口替换字体名，避免直接强转 wxNativeFontInfo 内部布局引发栈破坏
+                wxFont resultFont(font);
+                if (resultFont.SetFaceName(standardEnglishName) && resultFont.IsOk()){
+                    return resultFont;
+                }
+            }
         }
     }
 
