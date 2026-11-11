@@ -1206,7 +1206,7 @@ void MainFrame::StartServer() {
     wxString htmlContent;
 
     HINSTANCE hInst = wxGetInstance();
-    HRSRC hRes = ::FindResource(hInst, L"IDR_HTML_INDEX", RT_HTML);
+    HRSRC hRes = ::FindResourceW(hInst, L"IDR_HTML_INDEX", MAKEINTRESOURCEW(23));
 
     if (hRes) {
         HGLOBAL hData = ::LoadResource(hInst, hRes);
