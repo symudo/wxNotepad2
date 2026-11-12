@@ -18,13 +18,10 @@ MyTreeCtrl::MyTreeCtrl(wxWindow* parent, MainFrame* mainFrame, wxWindowID id, co
 MyTreeCtrl::~MyTreeCtrl(){
     //记录退出时当前节点
     auto currentItem = GetSelection();
-    auto currentItemData = static_cast<MyTreeItemData*>(GetItemData(currentItem));
-    int currentItemId = currentItemData->GetID();
-    //切换一次选择，以储存可能的笔记更改
+    auto currentItemData = currentItem.IsOk() ? static_cast<MyTreeItemData*>(GetItemData(currentItem)) : nullptr;
+    int currentItemId = currentItemData ? currentItemData->GetID() : 0;
+    //退出前解绑选择事件，避免析构期间触发回调访问已进入析构流程的 MainFrame（笔记已在 OnExit 中提前保存）
     Unbind(wxEVT_TREE_SEL_CHANGED, &MyTreeCtrl::OnSelChanged, this);
-    SelectItem(m_idToItem[TrashRootID]);
-    SelectItem(m_idToItem[FolderRootID]);
-    //退出时会触发节点的OnSelChanging相关事件，在这里unbind
     Unbind(wxEVT_TREE_SEL_CHANGING, &MyTreeCtrl::OnSelChanging, this);
     //遍历所有节点获取打开状态
     std::vector<int> stateExpanded;
@@ -1386,10 +1383,18 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
 }
 
 void MyTreeCtrl::OnSelChanging(wxTreeEvent& event){
+    if (!m_mainFrame || m_mainFrame->IsBeingDeleted()) {
+        event.Skip();
+        return;
+    }
     m_mainFrame->ResetAutoSaveSession();
     auto selectedItem = event.GetOldItem();
     if (!selectedItem.IsOk())return;
     auto itemData = static_cast<MyTreeItemData*>(GetItemData(selectedItem));
+    if (!itemData) {
+        event.Skip();
+        return;
+    }
     int itemType = GetTreeItemType(selectedItem);
     if (itemType == FolderItemID && itemData->GetNoteID() != -1 || itemType == WebCollectionItemID && itemData->GetNoteID() != -1){
         //储存笔记内容
