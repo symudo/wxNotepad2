@@ -33,8 +33,7 @@ MySTC::MySTC(wxWindow* parent, MainFrame* mainFrame, wxWindowID id) : wxStyledTe
     SetCaretForeground(GetInvertedColour(backgroundColour));
     StyleSetBackground(wxSTC_STYLE_DEFAULT, backgroundColour);
 
-    wxFont contentFont = ConvertLocalizedFontToEnglish(ReadFontFromConfig());
-    StyleSetFont(0, contentFont);
+    wxFont contentFont = ReadFontFromConfig();
     wxColour marginBgColor, marginFgColor;
     if (GetMyAppInstance()->GetDarkMode()) {
         marginBgColor = wxColour("#686868");
@@ -47,8 +46,7 @@ MySTC::MySTC(wxWindow* parent, MainFrame* mainFrame, wxWindowID id) : wxStyledTe
     SetMarginType(0, wxSTC_MARGIN_NUMBER);
     StyleSetForeground(wxSTC_STYLE_LINENUMBER, marginFgColor);
     StyleSetBackground(wxSTC_STYLE_LINENUMBER, marginBgColor);
-    UpdateSubStylesFont(contentFont);
-    UpdateLineNumberMarginWidth(true);
+    ChangeEditorFont(contentFont);
 
     /*SetEdgeMode(wxSTC_EDGE_LINE);
     SetEdgeColumn(80);*/
@@ -1064,14 +1062,20 @@ void MySTC::SetStyleForSelected(wxCommandEvent& event) {
     }
 }
 
-void MySTC::UpdateSubStylesFont(const wxFont& contentFont) {
+void MySTC::UpdateSubStylesFont(const wxFont& contentFont, const wxString& englishFaceName) {
     int mainPointSize = contentFont.GetPointSize();
     int annotationPointSize = wxMax(1, (int)(mainPointSize * 0.75));
     // 行号字体与正文保持一致字号，贴近 Notepad++ 行号视觉效果
     StyleSetFont(wxSTC_STYLE_LINENUMBER, contentFont);
+    if (!englishFaceName.IsEmpty()) {
+        StyleSetFaceName(wxSTC_STYLE_LINENUMBER, englishFaceName);
+    }
     wxFont subFont = contentFont;
     subFont.SetPointSize(annotationPointSize);
     StyleSetFont(wxSTC_EOLANNOTATION_BOXED, subFont);
+    if (!englishFaceName.IsEmpty()) {
+        StyleSetFaceName(wxSTC_EOLANNOTATION_BOXED, englishFaceName);
+    }
 }
 
 void MySTC::UpdateLineNumberMarginWidth(bool force) {
@@ -1091,13 +1095,23 @@ void MySTC::UpdateLineNumberMarginWidth(bool force) {
 }
 
 void MySTC::ChangeEditorFont(const wxFont& rawFont) {
-    wxFont tmp(wxFontInfo(rawFont.GetPointSize()).FaceName(rawFont.GetFaceName()));
-    wxFont stdFont = ConvertLocalizedFontToEnglish(tmp);
-    int fontPointSize = stdFont.GetPointSize();
-    wxString fontFaceName = stdFont.GetFaceName();
-    StyleSetFont(0, stdFont);
-    ChangeAllStyleFont(fontPointSize, fontFaceName);
-    UpdateSubStylesFont(stdFont);
+    if (!rawFont.IsOk()) {
+        return;
+    }
+    wxFont cleanFont(wxFontInfo(rawFont.GetPointSize()).FaceName(rawFont.GetFaceName()));
+    if (!cleanFont.IsOk()) {
+        cleanFont = rawFont;
+    }
+    wxString englishFaceName = GetEnglishFontFaceName(rawFont);
+    int fontPointSize = cleanFont.GetPointSize();
+    wxString targetFaceName = englishFaceName.IsEmpty() ? cleanFont.GetFaceName() : englishFaceName;
+
+    StyleSetFont(0, cleanFont);
+    if (!targetFaceName.IsEmpty()) {
+        StyleSetFaceName(0, targetFaceName);
+    }
+    ChangeAllStyleFont(fontPointSize, targetFaceName);
+    UpdateSubStylesFont(cleanFont, targetFaceName);
     UpdateLineNumberMarginWidth(true);
 }
 
@@ -1116,9 +1130,11 @@ void MySTC::MarkCurrentNoteModified() {
     m_mainFrame->ScheduleAutoSave();
 }
 
-void MySTC::ChangeAllStyleFont(int pointSize, wxString& faceName) {
+void MySTC::ChangeAllStyleFont(int pointSize, const wxString& faceName) {
     for (int i = STYLE_BOLD; i < STYLE_LEVEL2 + 1; i++) {
-        StyleSetFaceName(i, faceName);
+        if (!faceName.IsEmpty()) {
+            StyleSetFaceName(i, faceName);
+        }
         StyleSetSize(i, pointSize);
     }
 }

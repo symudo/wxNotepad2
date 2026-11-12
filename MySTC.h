@@ -62,7 +62,7 @@ public:
     void GetOutlineStyle(std::vector<OutlineItem>& items);
     void SetStyleForSelected(wxCommandEvent& event);
     //使用这三个函数来设置所有样式的同步修改
-    void ChangeAllStyleFont(int pointSize, wxString& faceName);
+    void ChangeAllStyleFont(int pointSize, const wxString& faceName);
     void ChangeAllStyleBackground(wxColour& color);
     void ChangeAllStyleForeground(wxColour& color);
     void ChangeEditorFont(const wxFont& rawFont);
@@ -155,7 +155,7 @@ private:
     void SetInitializingState(bool isInitializing) { m_isInitializing = isInitializing; };
     //bool IsMouseInLineText(wxPoint pt, int pos);
     void ApplyStyle(int pos, int style, int length);
-    void UpdateSubStylesFont(const wxFont& contentFont);
+    void UpdateSubStylesFont(const wxFont& contentFont, const wxString& englishFaceName);
     void MarkCurrentNoteModified();
     void FindOutlineRanges(std::vector<OutlineRange>& ranges);
     void ExtractOutlineItems(const std::vector<OutlineRange>& ranges, std::vector<OutlineItem>& items);

@@ -24,6 +24,7 @@ public:
     ComPtr(T* p): ptr_(p){ if (ptr_) ptr_->AddRef(); }
     ~ComPtr(){ if (ptr_) ptr_->Release(); }
 
+    T* Get() const{ return ptr_; }
     T* operator->() const{ return ptr_; }
     T** operator&(){
         if (ptr_) ptr_->Release();
@@ -107,6 +108,102 @@ inline DirectWriteFactoryRAII::Cleanup DirectWriteFactoryRAII::cleanup;
 // -------------------------------------------------------------------
 
 /**
+ * @brief 从 IDWriteFontFamily 提取标准英文（en-us）家族名称。
+ */
+inline wxString ExtractEnglishFamilyName(IDWriteFontFamily* pFontFamily) {
+    if (pFontFamily == nullptr) {
+        return wxEmptyString;
+    }
+
+    ComPtr<IDWriteLocalizedStrings> pFamilyNames;
+    HRESULT hr = pFontFamily->GetFamilyNames(&pFamilyNames);
+    if (FAILED(hr) || !pFamilyNames) {
+        return wxEmptyString;
+    }
+
+    UINT32 nameIndex = 0;
+    BOOL found = FALSE;
+    hr = pFamilyNames->FindLocaleName(L"en-us", &nameIndex, &found);
+    if (FAILED(hr) || !found) {
+        nameIndex = 0;
+    }
+
+    UINT32 length = 0;
+    hr = pFamilyNames->GetStringLength(nameIndex, &length);
+    if (FAILED(hr) || length == 0) {
+        return wxEmptyString;
+    }
+
+    std::wstring wsName(length, L'\0');
+    hr = pFamilyNames->GetString(nameIndex, &wsName[0], length + 1);
+    if (FAILED(hr)) {
+        return wxEmptyString;
+    }
+
+    return wxString(wsName.c_str());
+}
+
+/**
+ * @brief 通过 DirectWrite 获取给定 wxFont 对应的标准英文（en-us）字体家族名称。
+ *        不回写 wxFont::SetFaceName，避免中文 Windows 下 GDI 字体枚举校验拒绝英文家族名。
+ */
+inline wxString GetEnglishFontFaceName(const wxFont& font) {
+    if (!font.IsOk()) {
+        return wxEmptyString;
+    }
+
+    wxString faceName = font.GetFaceName();
+    if (faceName.IsEmpty() || faceName.IsAscii()) {
+        return faceName;
+    }
+
+    IDWriteFactory* pFactory = DirectWriteFactoryRAII::Get();
+    if (pFactory == nullptr) {
+        return faceName;
+    }
+
+    ComPtr<IDWriteFontCollection> pFontCollection;
+    HRESULT hr = pFactory->GetSystemFontCollection(&pFontCollection);
+    if (SUCCEEDED(hr) && pFontCollection) {
+        UINT32 index = 0;
+        BOOL exists = FALSE;
+        hr = pFontCollection->FindFamilyName(faceName.wc_str(), &index, &exists);
+        if (SUCCEEDED(hr) && exists) {
+            ComPtr<IDWriteFontFamily> pFontFamily;
+            if (SUCCEEDED(pFontCollection->GetFontFamily(index, &pFontFamily)) && pFontFamily) {
+                wxString englishName = ExtractEnglishFamilyName(pFontFamily.Get());
+                if (!englishName.IsEmpty()) {
+                    return englishName;
+                }
+            }
+        }
+    }
+
+    // 针对 GDI 子族名（如 "微软雅黑 Light"、"思源黑体" 等）回退到 GDI-DWrite 互操作查询
+    HFONT hFont = reinterpret_cast<HFONT>(font.GetHFONT());
+    if (hFont != nullptr) {
+        LOGFONTW lf{};
+        if (::GetObjectW(hFont, sizeof(LOGFONTW), &lf) > 0) {
+            ComPtr<IDWriteGdiInterop> pGdiInterop;
+            if (SUCCEEDED(pFactory->GetGdiInterop(&pGdiInterop)) && pGdiInterop) {
+                ComPtr<IDWriteFont> pDWriteFont;
+                if (SUCCEEDED(pGdiInterop->CreateFontFromLOGFONT(&lf, &pDWriteFont)) && pDWriteFont) {
+                    ComPtr<IDWriteFontFamily> pFontFamily;
+                    if (SUCCEEDED(pDWriteFont->GetFontFamily(&pFontFamily)) && pFontFamily) {
+                        wxString englishName = ExtractEnglishFamilyName(pFontFamily.Get());
+                        if (!englishName.IsEmpty()) {
+                            return englishName;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return faceName;
+}
+
+/**
  * @brief 将 wxFont 对象的本地化名称替换为 DirectWrite 获取的标准英文名称。
  *
  * @param font 输入的 wxFont 对象的引用。
@@ -118,80 +215,14 @@ inline wxFont ConvertLocalizedFontToEnglish(const wxFont& font){
         return font;
     }
 
-    wxString localizedName = font.GetFaceName();
-
-    // 如果为空或已经是英文名（ASCII 字符），则无需处理，直接返回原始字体的拷贝
-    if (localizedName.IsEmpty() || localizedName.IsAscii()){
-        return font;
-    }
-
-    IDWriteFactory* pFactory = DirectWriteFactoryRAII::Get();
-    if (pFactory == nullptr){
-        return font;
-    }
-
-    ComPtr<IDWriteFontCollection> pFontCollection;
-    HRESULT hr = pFactory->GetSystemFontCollection(&pFontCollection);
-
-    if (FAILED(hr) || !pFontCollection){
-        return font;
-    }
-
-    // 1. 查找字体家族索引
-    UINT32 index = 0;
-    BOOL exists = FALSE;
-    hr = pFontCollection->FindFamilyName(localizedName.wc_str(), &index, &exists);
-
-    if (FAILED(hr) || !exists){
-        return font;
-    }
-
-    // 2. 获取字体家族对象
-    ComPtr<IDWriteFontFamily> pFontFamily;
-    hr = pFontCollection->GetFontFamily(index, &pFontFamily);
-
-    if (FAILED(hr) || !pFontFamily){
-        return font;
-    }
-
-    // 3. 获取字体家族的名称集合
-    ComPtr<IDWriteLocalizedStrings> pFamilyNames;
-    hr = pFontFamily->GetFamilyNames(&pFamilyNames);
-
-    if (FAILED(hr) || !pFamilyNames){
-        return font;
-    }
-
-    // 4. 查找英文名称 ("en-us")
-    UINT32 nameIndex = 0;
-    BOOL found = FALSE;
-    hr = pFamilyNames->FindLocaleName(L"en-us", &nameIndex, &found);
-
-    if (FAILED(hr) || !found){
-        nameIndex = 0;
-    }
-
-    // 5. 提取名称字符串
-    UINT32 length = 0;
-    hr = pFamilyNames->GetStringLength(nameIndex, &length);
-
-    if (SUCCEEDED(hr)){
-        std::wstring wsName(length, L'\0');
-        hr = pFamilyNames->GetString(nameIndex, &wsName[0], length + 1);
-
-        if (SUCCEEDED(hr)){
-            wxString standardEnglishName(wsName.c_str());
-            if (!standardEnglishName.IsEmpty()){
-                // 使用 wxFont 标准公开接口替换字体名，避免直接强转 wxNativeFontInfo 内部布局引发栈破坏
-                wxFont resultFont(font);
-                if (resultFont.SetFaceName(standardEnglishName) && resultFont.IsOk()){
-                    return resultFont;
-                }
-            }
+    wxString englishName = GetEnglishFontFaceName(font);
+    if (!englishName.IsEmpty() && englishName != font.GetFaceName()) {
+        wxFont resultFont(font);
+        if (resultFont.SetFaceName(englishName) && resultFont.IsOk()) {
+            return resultFont;
         }
     }
 
-    // 失败或提取名称失败，返回原始字体
     return font;
 }
 
