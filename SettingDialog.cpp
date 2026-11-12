@@ -14,6 +14,12 @@ bool SettingDialog::Create(wxWindow* parent, wxWindowID id, const wxString& titl
         return false;
 
     CreateButtons(wxOK | wxCANCEL);
+    if (wxWindow* okBtn = FindWindow(wxID_OK)) {
+        okBtn->SetLabel(L"确定");
+    }
+    if (wxWindow* cancelBtn = FindWindow(wxID_CANCEL)) {
+        cancelBtn->SetLabel(L"取消");
+    }
     //page 1
     auto page1 = new wxPanel(GetBookCtrl(), wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
     GetBookCtrl()->AddPage(page1, wxT("全局"));
@@ -23,7 +29,7 @@ bool SettingDialog::Create(wxWindow* parent, wxWindowID id, const wxString& titl
     auto staticText2 = new wxStaticText(page1, wxID_ANY, wxT("全局热键"));
     page_sizer_1->Add(staticText2, wxSizerFlags().Border(wxALL));
 
-    m_hotkey = new wxTextCtrl(page1, wxID_ANY, L"None", wxDefaultPosition, wxDefaultSize, wxTE_READONLY | wxBORDER_SIMPLE);
+    m_hotkey = new wxTextCtrl(page1, wxID_ANY, L"无", wxDefaultPosition, wxDefaultSize, wxTE_READONLY | wxBORDER_SIMPLE);
     page_sizer_1->Add(m_hotkey, wxSizerFlags().Border(wxALL));
 
     page_sizer_1->AddSpacer(20);
@@ -357,6 +363,9 @@ void SettingDialog::LoadConfig() {
     originData.dm_autoSaveDelayMs = NormalizeAutoSaveDelayMs(config.ReadLong("Scintilla/AutoSaveDelayMs", 1000));
     config.Read("Scintilla/ClipboardBlackList", &originData.dm_ClipboardBlackList);
     config.Read("MainWindow/GlobalHotkey", &originData.dm_hotkey, L"Ctrl+Shift+F1");
+    if (originData.dm_hotkey.IsEmpty() || originData.dm_hotkey.CmpNoCase(L"None") == 0) {
+        originData.dm_hotkey = L"无";
+    }
     originData.dm_stcFont = ReadFontFromConfig();
     wxString linkValue;
     for (int i = 0; i < 5; i++) {
@@ -539,7 +548,7 @@ void SettingDialog::OnHotkeyPressed(wxKeyEvent& event) {
 
     if (keycode == WXK_CONTROL || keycode == WXK_ALT || keycode == WXK_SHIFT) {
         event.Skip();
-        m_hotkey->SetValue(L"None");
+        m_hotkey->SetValue(L"无");
         return;
     }
     wxAcceleratorEntry accelEntry(modifiers, keycode, wxID_ANY);

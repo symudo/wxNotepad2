@@ -349,6 +349,9 @@ void MainFrame::RegisterGlobalHotkey() {
     wxFileConfig config{ wxEmptyString,wxEmptyString,GetMyAppInstance()->GetConfigFilePath(), wxEmptyString, wxCONFIG_USE_LOCAL_FILE };
     wxString hotkeyString;
     config.Read("MainWindow/GlobalHotkey", &hotkeyString, L"Ctrl+Shift+F1");
+    if (hotkeyString.IsEmpty() || hotkeyString.CmpNoCase(L"None") == 0 || hotkeyString == L"无") {
+        return;
+    }
 
     wxAcceleratorEntry entry;
     bool parseSuccess = entry.FromString(hotkeyString);

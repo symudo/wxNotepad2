@@ -144,7 +144,7 @@ MyCardViewPanel::MyCardViewPanel(wxWindow* parent, wxWindowID id)
     SetScrollRate(0, 20);
     SetSizer(m_mainSizer);
 
-    m_emptyMessageText = new wxStaticText(this, wxID_ANY, "Ain't Nobody Here but Us Chickens", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
+    m_emptyMessageText = new wxStaticText(this, wxID_ANY, L"这里空空如也", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
     wxFont font = m_emptyMessageText->GetFont();
     font.SetStyle(wxFONTSTYLE_ITALIC);
     m_emptyMessageText->SetFont(font);
