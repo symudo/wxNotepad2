@@ -414,6 +414,7 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
     m_showMatchesIndicator = config->ReadBool("Scintilla/ShowMatchesIndicator", true);
     m_recentMaxCount = config->ReadLong("Tree/RecentMaxCount", 10);
     if (m_recentMaxCount < 5)m_recentMaxCount = 5;
+    m_autoSaveDelayMs = NormalizeAutoSaveDelayMs(config->ReadLong("Scintilla/AutoSaveDelayMs", 1000));
     for (int i = 0; i < 9; ++i) {
         m_quickSwitchMenuIds[i] = config->ReadLong("Shortcuts/Shortcut" + std::to_string(i + 1), 0);
     }
@@ -819,13 +820,13 @@ bool MainFrame::SaveNoteContent(int noteID) {
 }
 
 void MainFrame::ScheduleAutoSave() {
-    if (m_currentNoteID == -1 || !m_scintilla || m_scintilla->GetReadOnly()) {
+    if (m_autoSaveDelayMs <= 0 || m_currentNoteID == -1 || !m_scintilla || m_scintilla->GetReadOnly()) {
         return;
     }
     if (!m_simplebook || m_simplebook->GetSelection() != ID_ScintillaPage) {
         return;
     }
-    m_autoSaveTimer.Start(1000, wxTIMER_ONE_SHOT);
+    m_autoSaveTimer.Start(m_autoSaveDelayMs, wxTIMER_ONE_SHOT);
 }
 
 void MainFrame::ResetAutoSaveSession() {
@@ -853,7 +854,7 @@ void MainFrame::OnAutoSaveTimer(wxTimerEvent& WXUNUSED(event)) {
 }
 
 void MainFrame::OnActivate(wxActivateEvent& event) {
-    if (!event.GetActive() && !IsBeingDeleted()) {
+    if (m_autoSaveDelayMs > 0 && !event.GetActive() && !IsBeingDeleted()) {
         FlushAutoSave();
     }
     event.Skip();
@@ -1348,6 +1349,12 @@ void MainFrame::OnGlobalSettings(wxCommandEvent& event) {
         m_minimizeToTray = settingsDialog.changedData.dm_MinimizeToTray;
         m_ClipboardGetMoreInfo = settingsDialog.changedData.dm_ClipboardGetMoreInfo;
         m_recentMaxCount = settingsDialog.changedData.dm_RecentItemMaxValue;
+        m_autoSaveDelayMs = settingsDialog.changedData.dm_autoSaveDelayMs;
+        if (m_autoSaveDelayMs <= 0) {
+            m_autoSaveTimer.Stop();
+        } else if (m_autoSaveTimer.IsRunning()) {
+            m_autoSaveTimer.Start(m_autoSaveDelayMs, wxTIMER_ONE_SHOT);
+        }
         SetClipboardBlackList();
 
         m_scintilla->InitHotLinks();

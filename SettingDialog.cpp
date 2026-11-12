@@ -33,6 +33,17 @@ bool SettingDialog::Create(wxWindow* parent, wxWindowID id, const wxString& titl
 
     m_CloseToTray = new wxCheckBox(page1, wxID_ANY, wxT("关闭时隐藏到通知区域"));
     page_sizer_1->Add(m_CloseToTray, wxSizerFlags().Border(wxALL));
+
+    page_sizer_1->AddSpacer(12);
+
+    auto autoSaveSizer = new wxBoxSizer(wxHORIZONTAL);
+    auto autoSaveLabel = new wxStaticText(page1, wxID_ANY, wxT("实时保存延迟 (毫秒，0=仅切换/退出保存)："));
+    autoSaveSizer->Add(autoSaveLabel, wxSizerFlags().CenterVertical().Border(wxRIGHT, 6));
+    m_AutoSaveDelaySpin = new wxSpinCtrl(page1, wxID_ANY, wxEmptyString, wxDefaultPosition,
+        ConvertDialogToPixels(wxSize(60, -1)), wxSP_ARROW_KEYS, 0, 60000, 1000);
+    autoSaveSizer->Add(m_AutoSaveDelaySpin, wxSizerFlags().CenterVertical());
+    page_sizer_1->Add(autoSaveSizer, wxSizerFlags().Border(wxALL));
+
     page1->SetSizerAndFit(page_sizer_1);
     //page 2
     auto page2 = new wxPanel(GetBookCtrl(), wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
@@ -343,6 +354,7 @@ void SettingDialog::LoadConfig() {
     if (originData.dm_ImagePreviewMaxSize < 50)originData.dm_ImagePreviewMaxSize = 50;
     originData.dm_RecentItemMaxValue = config.ReadLong("Tree/RecentMaxCount", 10);
     if (originData.dm_RecentItemMaxValue < 5)originData.dm_RecentItemMaxValue = 5;
+    originData.dm_autoSaveDelayMs = NormalizeAutoSaveDelayMs(config.ReadLong("Scintilla/AutoSaveDelayMs", 1000));
     config.Read("Scintilla/ClipboardBlackList", &originData.dm_ClipboardBlackList);
     config.Read("MainWindow/GlobalHotkey", &originData.dm_hotkey, L"Ctrl+Shift+F1");
     originData.dm_stcFont = ReadFontFromConfig();
@@ -395,6 +407,7 @@ void SettingDialog::SaveConfig() const {
     config.Write("Tree/IconSize", changedData.dm_treeIconSize);
     config.Write("Scintilla/ImagePreviewMaxSize", changedData.dm_ImagePreviewMaxSize);
     config.Write("Tree/RecentMaxCount", changedData.dm_RecentItemMaxValue);
+    config.Write("Scintilla/AutoSaveDelayMs", changedData.dm_autoSaveDelayMs);
     config.Write("Scintilla/ClipboardBlackList", changedData.dm_ClipboardBlackList);
     config.Write("MainWindow/GlobalHotkey", changedData.dm_hotkey);
     config.Write("Scintilla/Font/PointSize", changedData.dm_stcFont.GetPointSize());
@@ -431,6 +444,7 @@ void SettingDialog::SetControlState() {
     m_ClipboardBlackList->SetValue(originData.dm_ClipboardBlackList);
     ImagePreviewMaxSize = originData.dm_ImagePreviewMaxSize;
     RecentItemMaxValue = originData.dm_RecentItemMaxValue;
+    m_AutoSaveDelaySpin->SetValue(originData.dm_autoSaveDelayMs);
     m_hotkey->SetValue(originData.dm_hotkey);
     m_link1Content->SetValue(originData.dm_linkContent[0]);
     m_link1name->SetValue(originData.dm_linkName[0]);
@@ -468,6 +482,7 @@ void SettingDialog::GetControlState() {
 
     changedData.dm_ImagePreviewMaxSize = ImagePreviewMaxSize;
     changedData.dm_RecentItemMaxValue = RecentItemMaxValue;
+    changedData.dm_autoSaveDelayMs = NormalizeAutoSaveDelayMs(m_AutoSaveDelaySpin->GetValue());
     changedData.dm_hotkey = m_hotkey->GetValue();
     changedData.dm_linkContent[0] = m_link1Content->GetValue();
     changedData.dm_linkName[0] = m_link1name->GetValue();

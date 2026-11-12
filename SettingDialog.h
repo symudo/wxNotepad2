@@ -45,6 +45,7 @@ public:
         wxString dm_ClipboardBlackList;
         int dm_ImagePreviewMaxSize;
         int dm_RecentItemMaxValue;
+        int dm_autoSaveDelayMs;
         wxString dm_hotkey;
 
         bool operator==(const SettingsData& other) const {
@@ -80,6 +81,7 @@ public:
                 dm_ClipboardBlackList == other.dm_ClipboardBlackList &&
                 dm_ImagePreviewMaxSize == other.dm_ImagePreviewMaxSize &&
                 dm_RecentItemMaxValue == other.dm_RecentItemMaxValue &&
+                dm_autoSaveDelayMs == other.dm_autoSaveDelayMs &&
                 dm_hotkey == other.dm_hotkey;
         }
         bool operator!=(const SettingsData& other) {
@@ -121,6 +123,7 @@ private:
     wxFontPickerCtrl* m_stcFont;
     wxSlider* m_toolbarIconSize;
     wxSlider* m_treeIconSize;
+    wxSpinCtrl* m_AutoSaveDelaySpin;
     wxSpinCtrl* m_portSpin;
     wxTextCtrl* m_ClipboardBlackList;
     wxTextCtrl* m_ImagePreviewMaxSize;

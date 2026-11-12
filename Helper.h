@@ -537,3 +537,16 @@ inline wxString ValidateAndExtractColor(const wxString& full_color_str, const wx
     }
     return default_color;
 }
+
+inline int NormalizeAutoSaveDelayMs(long value){
+    if (value <= 0){
+        return 0;
+    }
+    if (value < 200){
+        return 200;
+    }
+    if (value > 60000){
+        return 60000;
+    }
+    return static_cast<int>(value);
+}

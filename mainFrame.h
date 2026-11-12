@@ -210,6 +210,7 @@ private:
     bool m_PinToTop = false;
     bool m_enableNetServer = false;
     int m_currentNoteID = -1;
+    int m_autoSaveDelayMs = 1000;
     wxTimer m_autoSaveTimer;
     HWND m_hMainFrame;
     MongooseServer* m_server;
