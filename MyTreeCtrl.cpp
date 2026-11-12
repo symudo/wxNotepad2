@@ -7,6 +7,8 @@
 #include "MyTreeCtrl.h"
 #include "Helper.h"
 #include "SVG_ICON.h"
+#include <commctrl.h>
+#include <wx/weakref.h>
 
 MyTreeCtrl::MyTreeCtrl(wxWindow* parent, MainFrame* mainFrame, wxWindowID id, const wxPoint& pos, const wxSize& size, long style)
     : wxTreeCtrl(parent, id, pos, size, style), m_mainFrame(mainFrame), m_isDragging(false), m_dropPosition(0){
@@ -20,9 +22,10 @@ MyTreeCtrl::~MyTreeCtrl(){
     auto currentItem = GetSelection();
     auto currentItemData = currentItem.IsOk() ? static_cast<MyTreeItemData*>(GetItemData(currentItem)) : nullptr;
     int currentItemId = currentItemData ? currentItemData->GetID() : 0;
-    //退出前解绑选择事件，避免析构期间触发回调访问已进入析构流程的 MainFrame（笔记已在 OnExit 中提前保存）
+    //退出前解绑选择与标签编辑事件，避免析构期间触发回调访问已进入析构流程的对象
     Unbind(wxEVT_TREE_SEL_CHANGED, &MyTreeCtrl::OnSelChanged, this);
     Unbind(wxEVT_TREE_SEL_CHANGING, &MyTreeCtrl::OnSelChanging, this);
+    Unbind(wxEVT_TREE_END_LABEL_EDIT, &MyTreeCtrl::OnEndLabelEdit, this);
     //遍历所有节点获取打开状态
     std::vector<int> stateExpanded;
     stateExpanded.reserve(m_idToItem.size());
@@ -287,10 +290,40 @@ void MyTreeCtrl::OnBeginLabelEdit(wxTreeEvent& event){
     }
 }
 
+void MyTreeCtrl::CommitPendingLabelEdit(){
+    if (GetEditControl()){
+        ::SendMessage((HWND)GetHWND(), TVM_ENDEDITLABELNOW, FALSE, 0);
+    }
+}
+
+void MyTreeCtrl::ScheduleEditLabel(const wxTreeItemId& item){
+    wxWeakRef<MyTreeCtrl> self(this);
+    CallAfter([self, item](){
+        if (self && !self->IsBeingDeleted() && item.IsOk()){
+            self->EditLabel(item);
+        }
+    });
+}
+
+void MyTreeCtrl::ScheduleSetItemText(const wxTreeItemId& item, const wxString& text){
+    wxWeakRef<MyTreeCtrl> self(this);
+    CallAfter([self, item, text](){
+        if (self && !self->IsBeingDeleted() && item.IsOk()){
+            self->SetItemText(item, text);
+        }
+    });
+}
+
 void MyTreeCtrl::OnEndLabelEdit(wxTreeEvent& event){
     // 获取编辑的节点和标签
     wxTreeItemId itemId = event.GetItem();
-    auto itemType = GetTreeItemType(event.GetItem());
+    if (IsBeingDeleted() || !m_mainFrame || m_mainFrame->IsBeingDeleted()){
+        return;
+    }
+    if (event.IsEditCancelled() || !itemId.IsOk()){
+        return;
+    }
+    auto itemType = GetTreeItemType(itemId);
     bool fileModified = GetItemText(itemId).EndsWith("*");
     wxString newName = event.GetLabel();
     newName = SanitizeName(newName);
@@ -301,6 +334,10 @@ void MyTreeCtrl::OnEndLabelEdit(wxTreeEvent& event){
 
     // 获取节点数据并检查名称是否变化
     MyTreeItemData* data = static_cast<MyTreeItemData*>(GetItemData(itemId));
+    if (!data){
+        event.Veto();
+        return;
+    }
     auto oldName = data->GetName();
     if (oldName == newName){
         event.Veto();
@@ -355,7 +392,7 @@ void MyTreeCtrl::OnEndLabelEdit(wxTreeEvent& event){
             newName += "*";
         }
         event.Veto();
-        CallAfter([itemId, newName, this](){SetItemText(itemId, newName); });
+        ScheduleSetItemText(itemId, newName);
         return;
     } else{
         // 检查 m_TagsList 中 newName 是否重复
@@ -416,7 +453,7 @@ void MyTreeCtrl::OnEndLabelEdit(wxTreeEvent& event){
         data->SetName(newName);
         sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
         event.Veto();
-        CallAfter([itemId, newName, this](){SetItemText(itemId, newName); });
+        ScheduleSetItemText(itemId, newName);
         return;
     }
 }
@@ -2071,7 +2108,7 @@ void MyTreeCtrl::OnNewFolder(wxCommandEvent& event){
     if (!IsExpanded(parentItem)){ Expand(parentItem); }
 
     SelectItem(folderItem);
-    CallAfter([this, folderItem](){ EditLabel(folderItem); });
+    ScheduleEditLabel(folderItem);
 }
 
 void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
@@ -2185,7 +2222,7 @@ void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
     if (!IsExpanded(parentItem)){ Expand(parentItem); }
     // UI操作
     SelectItem(noteItem);
-    CallAfter([this, noteItem](){ EditLabel(noteItem); });
+    ScheduleEditLabel(noteItem);
 }
 
 void MyTreeCtrl::OnNewTag(wxCommandEvent& event){
@@ -2218,7 +2255,7 @@ void MyTreeCtrl::OnNewTag(wxCommandEvent& event){
     auto newTagItem = AppendItem(parentItem, tagName, TreeIcon::ICON_TAG, -1, newTagData);
     sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
     SelectItem(newTagItem);
-    CallAfter([this, newTagItem](){ EditLabel(newTagItem); });
+    ScheduleEditLabel(newTagItem);
 }
 
 void MyTreeCtrl::OnRemoveTag(wxCommandEvent& event){

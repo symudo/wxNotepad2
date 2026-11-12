@@ -84,6 +84,7 @@ public:
 
     void InitFunctions();
     void InitBind();
+    void CommitPendingLabelEdit();
 
     void AddWebCollection(const wxString& url, const wxString& title, const wxString& content);
     void SwitchToWebCollectionNote();
@@ -218,6 +219,8 @@ private:
     wxTreeItemId TreeSwapSiblings(wxTreeItemId& currentItem, int direction);
 
     wxTreeItemId FindOrCreateWebCollectionNote(const wxTreeItemId& parentItem, wxString& targetText);
+    void ScheduleEditLabel(const wxTreeItemId& item);
+    void ScheduleSetItemText(const wxTreeItemId& item, const wxString& text);
 
 };
 

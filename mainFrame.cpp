@@ -526,7 +526,7 @@ void MainFrame::InitBind() {
     Bind(wxEVT_TOOL, &MainFrame::OnToolbarStyleButtonClicked, this, TOOLBAR_SET_STYLE);
     //窗口事件
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
-    Bind(wxEVT_ICONIZE, [this](wxIconizeEvent&) {if (IsIconized() && m_minimizeToTray) { FlushAutoSave(); Hide(); }; });
+    Bind(wxEVT_ICONIZE, [this](wxIconizeEvent&) {if (IsIconized() && m_minimizeToTray) { if (m_tree) { m_tree->CommitPendingLabelEdit(); } FlushAutoSave(); Hide(); }; });
     Bind(wxEVT_ACTIVATE, &MainFrame::OnActivate, this);
     Bind(wxEVT_TIMER, &MainFrame::OnAutoSaveTimer, this, ID_TIMER_AUTOSAVE);
     Bind(wxEVT_QUERY_END_SESSION, [this](wxCloseEvent&) {OnExit(); });
@@ -649,6 +649,9 @@ void MainFrame::switchToScintillaCtrl() {
 }
 
 void MainFrame::OnExit() {
+    if (m_tree) {
+        m_tree->CommitPendingLabelEdit();
+    }
     FlushAutoSave();
     ResetAutoSaveSession();
     //关闭所有对话框
@@ -1285,6 +1288,9 @@ void MainFrame::OnAbout(wxCommandEvent& WXUNUSED(event)) {
 
 void MainFrame::OnClose(wxCloseEvent& event) {
     if (m_closeToTray) {
+        if (m_tree) {
+            m_tree->CommitPendingLabelEdit();
+        }
         FlushAutoSave();
         Hide();
         event.Veto();
