@@ -67,6 +67,7 @@ public:
     void ChangeAllStyleForeground(wxColour& color);
     void ChangeEditorFont(const wxFont& rawFont);
     void UpdateLineNumberMarginWidth(bool force = false);
+    void ApplyTheme(bool isDark);
 
     void SetPreviewPicLength(int length) { m_imagePreview->m_maxsize = length; }
     enum STYLE_TYPE {

@@ -294,8 +294,8 @@ void MainFrame::CreateMyToolBar() {
     bool hideNavbar = config->ReadBool("Toolbar/HideNavbar", false);
     if (!hideNavbar) {
         toolBar->AddStretchableSpace();
-        wxStaticText* labelNav = new wxStaticText(toolBar, wxID_ANY, L"跳转到: ");
-        toolBar->AddControl(labelNav);
+        m_labelNav = new wxStaticText(toolBar, wxID_ANY, L"跳转到: ");
+        toolBar->AddControl(m_labelNav);
         m_Choice = new wxChoice(toolBar, ID_Choice, wxDefaultPosition, wxSize(FromDIP(240), -1), wxArrayString());
         toolBar->AddControl(m_Choice);
     }
@@ -340,6 +340,20 @@ bool MainFrame::MSWHandleMessage(WXLRESULT* result, WXUINT message, WXWPARAM wPa
             }
             *result = 0;
             return true;
+        }
+    }
+    if (message == WM_SETTINGCHANGE) {
+        if (lParam != 0) {
+            const wchar_t* paramStr = reinterpret_cast<const wchar_t*>(lParam);
+            if (paramStr && (wcscmp(paramStr, L"ImmersiveColorSet") == 0 || wcscmp(paramStr, L"WindowsTheme") == 0)) {
+                auto app = GetMyAppInstance();
+                if (app && app->GetThemeMode() == ThemeMode::System) {
+                    bool newDark = IsWindowsSystemDarkMode();
+                    if (newDark != app->GetDarkMode()) {
+                        ApplyTheme(newDark);
+                    }
+                }
+            }
         }
     }
     return wxFrame::MSWHandleMessage(result, message, wParam, lParam);
@@ -451,6 +465,7 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
     wxAcceleratorTable accel(3, entry);
     SetAcceleratorTable(accel);
     m_server = new MongooseServer(this);
+    ApplyTheme(GetMyAppInstance()->GetDarkMode());
 
     /*std::string html = "<html><body><h1>wxNotepad2 Server Running</h1></body></html>";
     if (m_server->Start(8080, html)){
@@ -506,7 +521,7 @@ void MainFrame::InitUI() {
     CreatMenuBar();
     CreateMyToolBar();
     //m_statusBar = new MyStatBar(this);
-    auto m_statusBar = new wxStatusBar(this);
+    m_statusBar = new wxStatusBar(this);
     m_statusBar->SetFieldsCount(3);
     int widths[3] = { -2, -1,-1 };
     m_statusBar->SetStatusWidths(3, widths);
@@ -1138,14 +1153,88 @@ void MainFrame::OnOutlineSelect(wxCommandEvent& event) {
 
 void MainFrame::OnSysColorChange2(wxSysColourChangedEvent& event) {
     event.Skip();
-    if (!GetMyAppInstance()->GetDarkMode())return;
-    wxColour darkToolbarColour = wxSystemSettings::GetColour(wxSYS_COLOUR_APPWORKSPACE);
-    auto m_toolbar = GetToolBar();
-    if (m_toolbar) {
-        m_toolbar->SetBackgroundColour(darkToolbarColour);
-        m_toolbar->Refresh();
-        m_toolbar->Update();
+    auto app = GetMyAppInstance();
+    if (app && app->GetThemeMode() == ThemeMode::System) {
+        bool newDark = IsWindowsSystemDarkMode();
+        if (newDark != app->GetDarkMode()) {
+            ApplyTheme(newDark);
+        }
     }
+}
+
+void MainFrame::UpdateToolBarIcons() {
+    wxToolBar* toolBar = GetToolBar();
+    if (!toolBar) return;
+    wxConfigBase* config = wxConfigBase::Get();
+    auto ToolbariconSize = config->ReadLong("Toolbar/IconSize", 32);
+    if (ToolbariconSize < 16 || ToolbariconSize > 256) ToolbariconSize = 32;
+    auto Size_i = wxSize(ToolbariconSize, ToolbariconSize);
+    const char* color = GetMyAppInstance()->GetThemeColor();
+    char buff[4096];
+
+    toolBar->SetToolNormalBitmap(MENU_NEW_NOTE, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_new_note, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_NEW_FOLDER, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_new_folder, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_EDIT_TAGS, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_tag, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(TOOLBAR_SET_STYLE, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_font_style, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_UNDO, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_undo, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_REDO, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_redo, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_PREV_VIEW, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_last_view, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_ALWAYS_TOP, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_pin, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_SEARCH_REPLACE, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_search, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_FIND_SQL, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_database_search, color, 73), Size_i));
+
+    bool isDark = GetMyAppInstance()->GetDarkMode();
+    wxColour tbBg = isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary;
+    toolBar->SetBackgroundColour(tbBg);
+    if (m_labelNav) {
+        m_labelNav->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
+        m_labelNav->SetBackgroundColour(tbBg);
+    }
+    if (m_Choice) {
+        m_Choice->SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
+        m_Choice->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
+    }
+    toolBar->Realize();
+    toolBar->Refresh();
+}
+
+void MainFrame::ApplyTheme(bool isDark) {
+    auto app = GetMyAppInstance();
+    app->SetDarkMode(isDark);
+
+    // 1. 设置主窗口标题栏 DWM 沉浸式暗色
+    SetWindowDarkMode(m_hMainFrame, isDark);
+
+    // 2. 更新工具栏及图标
+    UpdateToolBarIcons();
+
+    // 3. 树形控件主题与图标刷新
+    if (m_tree) {
+        m_tree->ApplyTheme(isDark);
+    }
+
+    // 4. 编辑器配色与主题刷新
+    if (m_scintilla) {
+        m_scintilla->ApplyTheme(isDark);
+    }
+
+    // 5. 卡片视图刷新
+    if (m_cardViewPanel) {
+        m_cardViewPanel->ApplyTheme(isDark);
+    }
+
+    // 6. 分割条与状态栏
+    if (m_splitter) {
+        m_splitter->SetBackgroundColour(isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary);
+    }
+    if (m_statusBar) {
+        m_statusBar->SetBackgroundColour(isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary);
+        m_statusBar->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
+        m_statusBar->Refresh();
+    }
+
+    Refresh();
+    Update();
 }
 //TODO
 static inline picojson::value GetNoteResponseByUrl(sqlite3* db, const wxString& url) {
@@ -1379,6 +1468,18 @@ void MainFrame::OnGlobalSettings(wxCommandEvent& event) {
         };
 
         m_scintilla->SetPreviewPicLength(settingsDialog.changedData.dm_ImagePreviewMaxSize);
+
+        bool themeChanged = (settingsDialog.originData.dm_themeMode != settingsDialog.changedData.dm_themeMode ||
+                             settingsDialog.originData.dm_darkmode != settingsDialog.changedData.dm_darkmode ||
+                             settingsDialog.originData.dm_DarkModeThemeColor != settingsDialog.changedData.dm_DarkModeThemeColor ||
+                             settingsDialog.originData.dm_DefaultThemeColor != settingsDialog.changedData.dm_DefaultThemeColor);
+        if (themeChanged) {
+            auto app = GetMyAppInstance();
+            app->SetThemeMode(static_cast<ThemeMode>(settingsDialog.changedData.dm_themeMode));
+            bool isDark = (settingsDialog.changedData.dm_themeMode == 2) ||
+                          (settingsDialog.changedData.dm_themeMode == 0 && IsWindowsSystemDarkMode());
+            ApplyTheme(isDark);
+        }
     }
     RegisterGlobalHotkey();
 }

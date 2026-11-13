@@ -194,12 +194,17 @@ public:
         ID_ScintillaPage,
     };
 
+    void ApplyTheme(bool isDark);
+    void UpdateToolBarIcons();
+
 private:
     wxSplitterWindow* m_splitter;
     wxSimplebook* m_simplebook;
     MyTrayIcon* m_trayIcon;
     wxArrayString* m_ClipboardBlackList;
     wxChoice* m_Choice = nullptr;
+    wxStaticText* m_labelNav = nullptr;
+    wxStatusBar* m_statusBar = nullptr;
     FontStylePanel* m_stylePopup = nullptr;
     std::vector<OutlineItem> m_outlineList;
     int m_quickSwitchMenuIds[9] = { 0 };

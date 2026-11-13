@@ -85,6 +85,7 @@ public:
     void InitFunctions();
     void InitBind();
     void CommitPendingLabelEdit();
+    void ApplyTheme(bool isDark);
 
     void AddWebCollection(const wxString& url, const wxString& title, const wxString& content);
     void SwitchToWebCollectionNote();

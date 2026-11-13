@@ -3,12 +3,18 @@
 #define _APP_H_
 #define MAJOR_VERSION 2
 #define MINOR_VERSION 0
-#define RELEASE_NUMBER 6
+#define RELEASE_NUMBER 7
 
 #include <wx/snglinst.h>
 
 #define WM_RESTORE_FRAME (WM_USER + 100)
 #define HOTKEY_ID_GLOBAL_FUNC 1002 
+
+enum class ThemeMode {
+    System = 0, // 跟随系统
+    Light  = 1, // 浅色模式
+    Dark   = 2  // 深色模式
+}; 
 
 struct sqlite3;
 class MyApp : public wxApp {
@@ -28,7 +34,14 @@ public:
     }
     wxString GetConfigFilePath() const { return ConfigFilePath; }
     //wxString GetDBFilePath() const{ return DBFilePath; }
+    ThemeMode GetThemeMode() const { return m_themeMode; }
+    void SetThemeMode(ThemeMode mode) { m_themeMode = mode; }
     bool GetDarkMode() const { return m_DarkMode; }
+    void SetDarkMode(bool isDark) {
+        m_DarkMode = isDark;
+        UpdateThemeColor();
+    }
+    void UpdateThemeColor();
     const char* GetThemeColor() const { return (const char*)themeColor; }
     bool GetPortableMode() const { return m_useExternalDB; }
     const wxString& GetPortableImageFold() const { return PortableImagesFold; }
@@ -50,6 +63,7 @@ private:
     wxString g_apiToken;
     int m_port;
     bool m_useExternalDB = false;
+    ThemeMode m_themeMode = ThemeMode::System;
     bool m_DarkMode = false;
     char themeColor[7];
 

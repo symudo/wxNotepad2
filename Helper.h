@@ -8,8 +8,59 @@
 #include <wx/mstream.h>
 #include <wx/string.h>
 #include <Windows.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
+#include <wx/settings.h>
 #include <wx/fileconf.h>
 #include <wx/app.h>
+#include "App.h"
+
+inline bool IsWindowsSystemDarkMode() {
+    DWORD value = 1;
+    DWORD size = sizeof(value);
+    LSTATUS status = ::RegGetValueW(
+        HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        L"AppsUseLightTheme",
+        RRF_RT_REG_DWORD,
+        nullptr,
+        &value,
+        &size
+    );
+    if (status == ERROR_SUCCESS) {
+        return value == 0;
+    }
+    return wxSystemSettings::GetAppearance().IsDark();
+}
+
+inline void SetWindowDarkMode(HWND hwnd, bool isDark) {
+    if (!hwnd) return;
+    BOOL useDarkMode = isDark ? TRUE : FALSE;
+    // 20: DWMWA_USE_IMMERSIVE_DARK_MODE (Win10 2004+ / Win11)
+    // 19: DWMWA_USE_IMMERSIVE_DARK_MODE (Win10 1903/1909)
+    if (FAILED(::DwmSetWindowAttribute(hwnd, 20, &useDarkMode, sizeof(useDarkMode)))) {
+        ::DwmSetWindowAttribute(hwnd, 19, &useDarkMode, sizeof(useDarkMode));
+    }
+    ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+namespace ThemeColours {
+    inline const wxColour DarkBgBase(0x1E, 0x1E, 0x1E);          // #1E1E1E 主背景
+    inline const wxColour DarkBgSecondary(0x25, 0x25, 0x26);     // #252526 工具栏/状态栏/行号背景
+    inline const wxColour DarkTextPrimary(0xD4, 0xD4, 0xD4);     // #D4D4D4 主要文字
+    inline const wxColour DarkTextSecondary(0x85, 0x85, 0x85);   // #858585 次要文字/行号文字
+    inline const wxColour DarkSelection(0x26, 0x4F, 0x78);       // #264F78 编辑器选中底色
+    inline const wxColour DarkCaret(0xFF, 0xFF, 0xFF);           // 白色光标
+
+    inline const wxColour LightBgBase(0xFF, 0xFF, 0xFF);         // #FFFFFF 主背景
+    inline const wxColour LightBgSecondary(0xF0, 0xF0, 0xF0);    // #F0F0F0 工具栏/状态栏/行号背景
+    inline const wxColour LightTextPrimary(0x00, 0x00, 0x00);    // #000000 主要文字
+    inline const wxColour LightTextSecondary(0x66, 0x66, 0x66);  // #666666 次要文字
+    inline const wxColour LightLineNumberFg(0x00, 0x80, 0x80);   // #008080 经典青绿行号文字
+    inline const wxColour LightSelection(0xAD, 0xD6, 0xFF);      // 浅蓝选中底色
+    inline const wxColour LightCaret(0x00, 0x00, 0x00);          // 黑色光标
+}
 
 #define MAX_PREVIEW_LEN 250 //预览最大长度;
 #define MAX_PREVIEW_LINES 10 //预览最大行数;

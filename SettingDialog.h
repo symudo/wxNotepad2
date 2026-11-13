@@ -28,6 +28,7 @@ public:
         bool dm_ClipboardGetMoreInfo;
         bool dm_CloseToTray;
         bool dm_MinimizeToTray;
+        int dm_themeMode;
         bool dm_darkmode;
         bool dm_hideNavbar;
         int dm_link[5];
@@ -52,6 +53,7 @@ public:
             return dm_ClipboardGetMoreInfo == other.dm_ClipboardGetMoreInfo &&
                 dm_CloseToTray == other.dm_CloseToTray &&
                 dm_MinimizeToTray == other.dm_MinimizeToTray &&
+                dm_themeMode == other.dm_themeMode &&
                 dm_darkmode == other.dm_darkmode &&
                 dm_hideNavbar == other.dm_hideNavbar &&
                 dm_link[0] == other.dm_link[0] &&
@@ -109,7 +111,7 @@ private:
     wxCheckBox* m_ClipboardGetMoreInfo;
     wxCheckBox* m_CloseToTray;
     wxCheckBox* m_MinimizeToTray;
-    wxCheckBox* m_darkmode;
+    wxChoice* m_themeModeChoice;
     wxCheckBox* m_hideNavbar;
     wxChoice* m_link1;
     wxChoice* m_link2;

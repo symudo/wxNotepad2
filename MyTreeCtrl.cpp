@@ -15,6 +15,7 @@ MyTreeCtrl::MyTreeCtrl(wxWindow* parent, MainFrame* mainFrame, wxWindowID id, co
     InitTreeCtrlIcons();
     SetImageList(m_imageListTreeCtrl);
     Initialization();
+    ApplyTheme(GetMyAppInstance()->GetDarkMode());
 }
 
 MyTreeCtrl::~MyTreeCtrl(){
@@ -1804,9 +1805,8 @@ void MyTreeCtrl::InitTreeCtrlIcons(){
     auto TreeiconSize = config->ReadLong("Tree/IconSize", 64);
     if (TreeiconSize < 16 || TreeiconSize > 256)  TreeiconSize = 64;
     auto Size_j = wxSize(TreeiconSize, TreeiconSize);
+    wxImageList* oldList = m_imageListTreeCtrl;
     m_imageListTreeCtrl = new wxImageList(TreeiconSize, TreeiconSize);
-    wxBitmapBundle bundle;
-    wxBitmap bitmap;
     char buff[4096];
     auto color = GetMyAppInstance()->GetThemeColor();
 
@@ -1815,6 +1815,21 @@ void MyTreeCtrl::InitTreeCtrlIcons(){
 
     TREE_ICON_TABLE(AS_LIST_ADD)
 #undef AS_LIST_ADD
+    SetImageList(m_imageListTreeCtrl);
+    if (oldList) {
+        delete oldList;
+    }
+}
+
+void MyTreeCtrl::ApplyTheme(bool isDark) {
+    HWND hwndTree = (HWND)GetHWND();
+    if (hwndTree) {
+        ::SetWindowTheme(hwndTree, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+    }
+    SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
+    SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
+    InitTreeCtrlIcons();
+    Refresh();
 }
 
 wxString MyTreeCtrl::MakePath(const wxTreeItemId& item){

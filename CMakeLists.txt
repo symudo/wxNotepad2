@@ -50,4 +50,5 @@ target_link_libraries(wxNotepad2 PRIVATE
     unofficial::tinyexpr::tinyexpr
     unofficial::mongoose::mongoose
     dwrite
+    dwmapi
 )

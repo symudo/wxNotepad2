@@ -16,36 +16,9 @@ MySTC::MySTC(wxWindow* parent, MainFrame* mainFrame, wxWindowID id) : wxStyledTe
     SetScrollWidth(10);
     SetScrollWidthTracking(true);
 
-    wxString foregroundColourStr, backgroundColourStr;
-    config->SetPath("/Scintilla/Colours");
-    config->Read("Foreground", &foregroundColourStr, "#000000"); // 默认前景色：黑色
-    config->Read("Background", &backgroundColourStr, "#FFFFFF"); // 默认背景色：白色
-    config->SetPath("/"); // 恢复路径
-    wxColour foregroundColour, backgroundColour;
-    if (!foregroundColour.Set(foregroundColourStr)) {
-        foregroundColour = wxColour(0, 0, 0); // 转换失败则使用默认黑色
-    }
-    if (!backgroundColour.Set(backgroundColourStr)) {
-        backgroundColour = wxColour(255, 255, 255); // 转换失败则使用默认白色
-    }
-    StyleSetForeground(0, foregroundColour);
-    StyleSetBackground(0, backgroundColour);
-    SetCaretForeground(GetInvertedColour(backgroundColour));
-    StyleSetBackground(wxSTC_STYLE_DEFAULT, backgroundColour);
-
-    wxFont contentFont = ReadFontFromConfig();
-    wxColour marginBgColor, marginFgColor;
-    if (GetMyAppInstance()->GetDarkMode()) {
-        marginBgColor = wxColour("#686868");
-        marginFgColor = wxColour("#a4ffff");
-    } else {
-        marginBgColor = wxColour(0xF0, 0xF0, 0xF0);
-        marginFgColor = wxColour(0, 0x80, 0x80);
-
-    }
     SetMarginType(0, wxSTC_MARGIN_NUMBER);
-    StyleSetForeground(wxSTC_STYLE_LINENUMBER, marginFgColor);
-    StyleSetBackground(wxSTC_STYLE_LINENUMBER, marginBgColor);
+    ApplyTheme(GetMyAppInstance()->GetDarkMode());
+    wxFont contentFont = ReadFontFromConfig();
     ChangeEditorFont(contentFont);
 
     /*SetEdgeMode(wxSTC_EDGE_LINE);
@@ -1149,6 +1122,36 @@ void MySTC::ChangeAllStyleBackground(wxColour& color) {
     for (int i : { STYLE_BOLD, STYLE_ITALICGREY, STYLE_RED, STYLE_BLUE, STYLE_TITLE, STYLE_LEVEL1, STYLE_LEVEL2}) {
         StyleSetBackground(i, color);
     }
+}
+
+void MySTC::ApplyTheme(bool isDark) {
+    HWND hwndSTC = (HWND)GetHWND();
+    if (hwndSTC) {
+        ::SetWindowTheme(hwndSTC, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+    }
+    wxColour bgColor = isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase;
+    wxColour fgColor = isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary;
+    wxColour marginBg = isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary;
+    wxColour marginFg = isDark ? ThemeColours::DarkTextSecondary : ThemeColours::LightLineNumberFg;
+    wxColour selBg = isDark ? ThemeColours::DarkSelection : ThemeColours::LightSelection;
+    wxColour caretColor = isDark ? ThemeColours::DarkCaret : ThemeColours::LightCaret;
+
+    StyleSetBackground(0, bgColor);
+    StyleSetForeground(0, fgColor);
+    StyleSetBackground(wxSTC_STYLE_DEFAULT, bgColor);
+    StyleSetForeground(wxSTC_STYLE_DEFAULT, fgColor);
+
+    SetCaretForeground(caretColor);
+    SetSelBackground(true, selBg);
+
+    StyleSetBackground(wxSTC_STYLE_LINENUMBER, marginBg);
+    StyleSetForeground(wxSTC_STYLE_LINENUMBER, marginFg);
+
+    ChangeAllStyleBackground(bgColor);
+    ChangeAllStyleForeground(fgColor);
+    InitStyles();
+    UpdateLineNumberMarginWidth(true);
+    Refresh();
 }
 
 MySTC::~MySTC() {

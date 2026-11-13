@@ -143,12 +143,14 @@ MyCardViewPanel::MyCardViewPanel(wxWindow* parent, wxWindowID id)
     SetDoubleBuffered(true);
     SetScrollRate(0, 20);
     SetSizer(m_mainSizer);
+    bool isDark = GetMyAppInstance()->GetDarkMode();
+    SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
 
     m_emptyMessageText = new wxStaticText(this, wxID_ANY, L"这里空空如也", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
     wxFont font = m_emptyMessageText->GetFont();
     font.SetStyle(wxFONTSTYLE_ITALIC);
     m_emptyMessageText->SetFont(font);
-    m_emptyMessageText->SetForegroundColour(wxColour(128, 128, 128));
+    m_emptyMessageText->SetForegroundColour(isDark ? ThemeColours::DarkTextSecondary : wxColour(128, 128, 128));
 
     m_mainSizer->Add(m_emptyMessageText, 0, wxALIGN_CENTER_HORIZONTAL | wxALL, 10);
     m_mainSizer->Hide(m_emptyMessageText);
@@ -166,6 +168,7 @@ MyCardViewPanel::~MyCardViewPanel(){
 }
 
 void MyCardViewPanel::LoadCards(const std::vector<CardData>& cards){
+    m_currentCards = cards;
     Freeze();
 
     auto color = GetMyAppInstance()->GetThemeColor();
@@ -208,9 +211,18 @@ void MyCardViewPanel::ClearView(){
         card->Destroy();
     }
     m_cardList.clear();
+    m_currentCards.clear();
     Layout();
     Thaw();
     Refresh();
+}
+
+void MyCardViewPanel::ApplyTheme(bool isDark) {
+    SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
+    if (m_emptyMessageText) {
+        m_emptyMessageText->SetForegroundColour(isDark ? ThemeColours::DarkTextSecondary : wxColour(128, 128, 128));
+    }
+    LoadCards(m_currentCards);
 }
 
 void MyCardViewPanel::OnShowFolderContent(wxTreeEvent& event){

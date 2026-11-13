@@ -53,6 +53,7 @@ public:
     void LoadCards(const std::vector<CardData>& cards);
     void ShowEmptyMessage();
     void ClearView();
+    void ApplyTheme(bool isDark);
     wxBitmapBundle m_folderIcon;
     wxBitmapBundle m_noteIcon;
 private:
@@ -60,6 +61,7 @@ private:
     wxBoxSizer* m_mainSizer;
     wxStaticText* m_emptyMessageText;
     std::vector<MyCard*> m_cardList;
+    std::vector<CardData> m_currentCards;
     void OnShowFolderContent(wxTreeEvent& event);
     void OnSize2(wxSizeEvent& event);
 };

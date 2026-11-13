@@ -20,6 +20,7 @@ bool SettingDialog::Create(wxWindow* parent, wxWindowID id, const wxString& titl
     if (wxWindow* cancelBtn = FindWindow(wxID_CANCEL)) {
         cancelBtn->SetLabel(L"取消");
     }
+    SetWindowDarkMode((HWND)GetHWND(), GetMyAppInstance()->GetDarkMode());
     //page 1
     auto page1 = new wxPanel(GetBookCtrl(), wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
     GetBookCtrl()->AddPage(page1, wxT("全局"));
@@ -57,10 +58,14 @@ bool SettingDialog::Create(wxWindow* parent, wxWindowID id, const wxString& titl
 
     auto flex_grid_sizer2 = new wxFlexGridSizer(2, 0, 10);
 
-    m_darkmode = new wxCheckBox(page2, wxID_ANY, wxT("黑暗模式"));
-    flex_grid_sizer2->Add(m_darkmode, wxSizerFlags().CenterVertical().Border(wxALL));
+    auto staticTextTheme = new wxStaticText(page2, wxID_ANY, wxT("外观主题模式"));
+    flex_grid_sizer2->Add(staticTextTheme, wxSizerFlags().CenterVertical().Border(wxALL));
 
-    flex_grid_sizer2->AddSpacer(0);
+    m_themeModeChoice = new wxChoice(page2, wxID_ANY);
+    m_themeModeChoice->Append(wxT("跟随系统"));
+    m_themeModeChoice->Append(wxT("浅色模式"));
+    m_themeModeChoice->Append(wxT("深色模式"));
+    flex_grid_sizer2->Add(m_themeModeChoice, wxSizerFlags().Border(wxALL));
 
     auto staticText3 = new wxStaticText(page2, wxID_ANY, wxT("正常模式主题色"));
     flex_grid_sizer2->Add(staticText3, wxSizerFlags().CenterVertical().Border(wxALL));
@@ -333,7 +338,15 @@ void SettingDialog::LoadConfig() {
     originData.dm_ClipboardGetMoreInfo = config.ReadBool("Scintilla/ClipboardGetMoreInfo", false);
     originData.dm_CloseToTray = config.ReadBool("MainWindow/CloseToTray", true);
     originData.dm_MinimizeToTray = config.ReadBool("MainWindow/MinimizeToTray", true);
-    originData.dm_darkmode = config.ReadBool("MainWindow/DarkMode", false);
+    long themeMode = config.ReadLong("MainWindow/ThemeMode", -1);
+    if (themeMode >= 0 && themeMode <= 2) {
+        originData.dm_themeMode = static_cast<int>(themeMode);
+    } else {
+        bool legacyDark = config.ReadBool("MainWindow/DarkMode", false);
+        originData.dm_themeMode = legacyDark ? 2 : 0;
+    }
+    originData.dm_darkmode = (originData.dm_themeMode == 2) ||
+        (originData.dm_themeMode == 0 && IsWindowsSystemDarkMode());
     originData.dm_hideNavbar = config.ReadBool("Toolbar/HideNavbar", false);
     wxString tempColor;
     config.Read("MainWindow/DefaultThemeColor", &tempColor, "#1F1F1F");
@@ -406,6 +419,7 @@ void SettingDialog::SaveConfig() const {
     config.Write("Scintilla/ClipboardGetMoreInfo", changedData.dm_ClipboardGetMoreInfo);
     config.Write("MainWindow/CloseToTray", changedData.dm_CloseToTray);
     config.Write("MainWindow/MinimizeToTray", changedData.dm_MinimizeToTray);
+    config.Write("MainWindow/ThemeMode", changedData.dm_themeMode);
     config.Write("MainWindow/DarkMode", changedData.dm_darkmode);
     config.Write("Toolbar/HideNavbar", changedData.dm_hideNavbar);
     config.Write("MainWindow/DefaultThemeColor", changedData.dm_DefaultThemeColor.GetAsString(wxC2S_HTML_SYNTAX));
@@ -436,7 +450,7 @@ void SettingDialog::SetControlState() {
     m_ClipboardGetMoreInfo->SetValue(originData.dm_ClipboardGetMoreInfo);
     m_CloseToTray->SetValue(originData.dm_CloseToTray);
     m_MinimizeToTray->SetValue(originData.dm_MinimizeToTray);
-    m_darkmode->SetValue(originData.dm_darkmode);
+    m_themeModeChoice->SetSelection(originData.dm_themeMode);
     m_hideNavbar->SetValue(originData.dm_hideNavbar);
     m_link1->SetSelection(originData.dm_link[0]);
     m_link2->SetSelection(originData.dm_link[1]);
@@ -473,7 +487,12 @@ void SettingDialog::GetControlState() {
     changedData.dm_ClipboardGetMoreInfo = m_ClipboardGetMoreInfo->GetValue();
     changedData.dm_CloseToTray = m_CloseToTray->GetValue();
     changedData.dm_MinimizeToTray = m_MinimizeToTray->GetValue();
-    changedData.dm_darkmode = m_darkmode->GetValue();
+    changedData.dm_themeMode = m_themeModeChoice->GetSelection();
+    if (changedData.dm_themeMode < 0 || changedData.dm_themeMode > 2) {
+        changedData.dm_themeMode = 0;
+    }
+    changedData.dm_darkmode = (changedData.dm_themeMode == 2) ||
+        (changedData.dm_themeMode == 0 && IsWindowsSystemDarkMode());
     changedData.dm_hideNavbar = m_hideNavbar->GetValue();
     changedData.dm_link[0] = m_link1->GetSelection();
     changedData.dm_link[1] = m_link2->GetSelection();
@@ -512,14 +531,11 @@ void SettingDialog::OnOK(wxCommandEvent& event) {
     GetControlState();
     if (changedData != originData) {
         SaveConfig();
-        if (changedData.dm_darkmode != originData.dm_darkmode ||
-            changedData.dm_DarkModeThemeColor != originData.dm_DarkModeThemeColor ||
-            changedData.dm_DefaultThemeColor != originData.dm_DefaultThemeColor ||
-            changedData.dm_toolbarIconSize != originData.dm_toolbarIconSize ||
+        if (changedData.dm_toolbarIconSize != originData.dm_toolbarIconSize ||
             changedData.dm_treeIconSize != originData.dm_treeIconSize ||
             changedData.dm_hideNavbar != originData.dm_hideNavbar) {
             wxMessageBox(
-                wxT("部分设置需要在重启程序后才能生效。"),
+                wxT("部分设置（如图标尺寸或隐藏导航条）需要在重启程序后才能生效。"),
                 L"设置已更新",
                 wxOK | wxICON_INFORMATION,
                 this

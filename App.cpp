@@ -10,6 +10,21 @@ static int register_char_tokenizer(sqlite3* db, char** pzErrMsg);
 
 wxIMPLEMENT_APP(MyApp);
 
+void MyApp::UpdateThemeColor() {
+    wxConfigBase* config = wxConfigBase::Get();
+    if (m_DarkMode) {
+        wxTheApp->SetAppearance(wxApp::Appearance::Dark);
+        auto full_color_str = config->Read("MainWindow/DarkModeThemeColor", "#B0B0B0");
+        auto final_color = ValidateAndExtractColor(full_color_str, "B0B0B0");
+        strcpy(themeColor, final_color.c_str());
+    } else {
+        wxTheApp->SetAppearance(wxApp::Appearance::Light);
+        auto full_color_str = config->Read("MainWindow/DefaultThemeColor", "#1F1F1F");
+        auto final_color = ValidateAndExtractColor(full_color_str, "1F1F1F");
+        strcpy(themeColor, final_color.c_str());
+    }
+}
+
 bool MyApp::OnInit() {
     if (!wxApp::OnInit())
         return false;
@@ -121,21 +136,18 @@ bool MyApp::OnInit() {
     wxImage::AddHandler(new wxPNGHandler);
     wxImage::AddHandler(new wxJPEGHandler);
     wxImage::AddHandler(new wxWEBPHandler);
-    //黑暗模式支持
+    // 黑暗模式与外观支持
     wxConfigBase* config = wxConfigBase::Get();
-    m_DarkMode = config->ReadBool("MainWindow/DarkMode", false);
-    if (m_DarkMode) {
-        wxTheApp->SetAppearance(wxApp::Appearance::Dark);
-        auto full_color_str = config->Read("MainWindow/DarkModeThemeColor", "#B0B0B0");
-        auto final_color = ValidateAndExtractColor(full_color_str, "B0B0B0");
-        const char* final_color_code = final_color.c_str();
-        strcpy(themeColor, final_color_code);
+    long modeVal = config->ReadLong("MainWindow/ThemeMode", -1);
+    if (modeVal >= 0 && modeVal <= 2) {
+        m_themeMode = static_cast<ThemeMode>(modeVal);
     } else {
-        auto full_color_str = config->Read("MainWindow/DefaultThemeColor", "#1F1F1F");
-        auto final_color = ValidateAndExtractColor(full_color_str, "1F1F1F");
-        const char* final_color_code = final_color.c_str();
-        strcpy(themeColor, final_color_code);
+        bool legacyDark = config->ReadBool("MainWindow/DarkMode", false);
+        m_themeMode = legacyDark ? ThemeMode::Dark : ThemeMode::System;
     }
+    m_DarkMode = (m_themeMode == ThemeMode::Dark) ||
+                 (m_themeMode == ThemeMode::System && IsWindowsSystemDarkMode());
+    UpdateThemeColor();
 
     m_port = config->ReadLong("Network/Port", 8080);
     g_apiToken = config->Read("Network/APIToken", L"default_token");
