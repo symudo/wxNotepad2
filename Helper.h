@@ -35,14 +35,73 @@ inline bool IsWindowsSystemDarkMode() {
 
 inline void SetWindowDarkMode(HWND hwnd, bool isDark) {
     if (!hwnd) return;
+
+    // 1. 设置 Windows 10/11 uxtheme 内部暗色支持与刷新
+    enum PreferredAppMode {
+        Default = 0,
+        AllowDark = 1,
+        ForceDark = 2,
+        ForceLight = 3,
+        Max = 4
+    };
+    HMODULE hUxtheme = ::GetModuleHandleW(L"uxtheme.dll");
+    if (!hUxtheme) hUxtheme = ::LoadLibraryW(L"uxtheme.dll");
+    if (hUxtheme) {
+        // ordinal 135: SetPreferredAppMode (Win10 1903+)
+        auto fnSetPreferredAppMode = reinterpret_cast<PreferredAppMode(WINAPI*)(PreferredAppMode)>(
+            ::GetProcAddress(hUxtheme, MAKEINTRESOURCEA(135)));
+        if (fnSetPreferredAppMode) {
+            fnSetPreferredAppMode(isDark ? ForceDark : ForceLight);
+        }
+        // ordinal 133: AllowDarkModeForWindow (Win10 1809+)
+        auto fnAllowDarkModeForWindow = reinterpret_cast<BOOL(WINAPI*)(HWND, BOOL)>(
+            ::GetProcAddress(hUxtheme, MAKEINTRESOURCEA(133)));
+        if (fnAllowDarkModeForWindow) {
+            fnAllowDarkModeForWindow(hwnd, isDark ? TRUE : FALSE);
+        }
+        // ordinal 136: FlushMenuThemes
+        auto fnFlushMenuThemes = reinterpret_cast<void(WINAPI*)()>(
+            ::GetProcAddress(hUxtheme, MAKEINTRESOURCEA(136)));
+        if (fnFlushMenuThemes) {
+            fnFlushMenuThemes();
+        }
+    }
+
+    // 2. 设置窗口主题为 DarkMode_Explorer
+    ::SetWindowTheme(hwnd, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+
+    // 3. 设置 DWM 沉浸式暗色属性 (20: Win10 2004+ / Win11, 19: Win10 1903/1909)
     BOOL useDarkMode = isDark ? TRUE : FALSE;
-    // 20: DWMWA_USE_IMMERSIVE_DARK_MODE (Win10 2004+ / Win11)
-    // 19: DWMWA_USE_IMMERSIVE_DARK_MODE (Win10 1903/1909)
     if (FAILED(::DwmSetWindowAttribute(hwnd, 20, &useDarkMode, sizeof(useDarkMode)))) {
         ::DwmSetWindowAttribute(hwnd, 19, &useDarkMode, sizeof(useDarkMode));
     }
+
+    // 4. Windows 11 DWM 标题栏、文字及边框色彩直接设定，彻底消除文字黑块或白底残留
+    constexpr DWORD DWMWA_BORDER_COLOR_ID = 34;
+    constexpr DWORD DWMWA_CAPTION_COLOR_ID = 35;
+    constexpr DWORD DWMWA_TEXT_COLOR_ID = 36;
+    constexpr COLORREF DWM_COLOR_DEFAULT = 0xFFFFFFFE;
+
+    if (isDark) {
+        COLORREF captionColor = RGB(0x1E, 0x1E, 0x1E); // #1E1E1E 标题栏背景完全涂黑
+        COLORREF textColor = RGB(0xD4, 0xD4, 0xD4);    // #D4D4D4 标题栏文字浅灰
+        COLORREF borderColor = RGB(0x3E, 0x3E, 0x42);  // #3E3E42 窗口边框暗色
+        ::DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR_ID, &captionColor, sizeof(captionColor));
+        ::DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR_ID, &textColor, sizeof(textColor));
+        ::DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR_ID, &borderColor, sizeof(borderColor));
+    } else {
+        COLORREF defaultColor = DWM_COLOR_DEFAULT;
+        ::DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR_ID, &defaultColor, sizeof(defaultColor));
+        ::DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR_ID, &defaultColor, sizeof(defaultColor));
+        ::DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR_ID, &defaultColor, sizeof(defaultColor));
+    }
+
+    // 5. 触发非客户区与系统主题完全重绘
     ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    ::SendMessageW(hwnd, WM_THEMECHANGED, 0, 0);
+    ::SendMessageW(hwnd, WM_NCPAINT, 1, 0);
+    ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 
 namespace ThemeColours {

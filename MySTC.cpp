@@ -54,6 +54,14 @@ MySTC::MySTC(wxWindow* parent, MainFrame* mainFrame, wxWindowID id) : wxStyledTe
     SetProperty("fold", "1");
     SetFoldFlags(wxSTC_FOLDFLAG_LINEAFTER_CONTRACTED);
 
+    // 显式将未使用的 Margins 与左右边缘置零，防止中间漏出 1px 白色边缘线
+    SetMarginWidth(1, 0);
+    SetMarginWidth(3, 0);
+    SetMarginWidth(4, 0);
+    SetMarginLeft(0);
+    SetMarginRight(0);
+    SetEdgeMode(wxSTC_EDGE_NONE);
+
     m_updatingTimer = new wxTimer(this);
     m_headerStack.reserve(16);
     m_pendingEmptyLines.reserve(32);
@@ -1125,29 +1133,43 @@ void MySTC::ApplyTheme(bool isDark) {
     wxColour selBg = isDark ? ThemeColours::DarkSelection : ThemeColours::LightSelection;
     wxColour caretColor = isDark ? ThemeColours::DarkCaret : ThemeColours::LightCaret;
 
+    SetBackgroundColour(bgColor);
+
     // 1. 设置默认样式并全量清空所有样式槽，确保没有任何槽位残留白色
     StyleSetBackground(wxSTC_STYLE_DEFAULT, bgColor);
     StyleSetForeground(wxSTC_STYLE_DEFAULT, fgColor);
     StyleClearAll();
 
-    // 2. 基础文本样式 (Style 0)
+    // 2. 遍历重设所有基础样式槽背景
+    for (int i = 0; i <= wxSTC_STYLE_MAX; ++i) {
+        StyleSetBackground(i, bgColor);
+    }
     StyleSetBackground(0, bgColor);
     StyleSetForeground(0, fgColor);
 
-    // 3. 光标与选区
+    // 3. 显式清除任何闲置 Margin 与边缘间隙，彻底消灭行号与正文间的白线
+    SetMarginWidth(1, 0);
+    SetMarginWidth(3, 0);
+    SetMarginWidth(4, 0);
+    SetMarginLeft(0);
+    SetMarginRight(0);
+    SetEdgeMode(wxSTC_EDGE_NONE);
+    SetEdgeColour(bgColor);
+
+    // 4. 光标与选区
     SetCaretForeground(caretColor);
     SetSelBackground(true, selBg);
     SetCaretLineBackground(isDark ? wxColour(0x2A, 0x2D, 0x2E) : wxColour(0xE8, 0xF2, 0xFF));
 
-    // 4. 行号边距 (Margin 0)
+    // 5. 行号边距 (Margin 0)
     StyleSetBackground(wxSTC_STYLE_LINENUMBER, marginBg);
     StyleSetForeground(wxSTC_STYLE_LINENUMBER, marginFg);
 
-    // 5. 折叠边距 (Margin 2)：设置专用颜色，消除 Scintilla 默认灰白相间的斑驳点阵
+    // 6. 折叠边距 (Margin 2)：设置专用颜色，消除 Scintilla 默认灰白相间的斑驳点阵
     SetFoldMarginColour(true, marginBg);
     SetFoldMarginHiColour(true, marginBg);
 
-    // 6. 折叠标记图标颜色
+    // 7. 折叠标记图标颜色
     wxColour foldMarkerColor = isDark ? wxColour(0x85, 0x85, 0x85) : wxColour(0x80, 0x80, 0x80);
     wxColour foldMarkerBorder = isDark ? wxColour(0x55, 0x55, 0x55) : wxColour(0xA0, 0xA0, 0xA0);
     MarkerDefine(wxSTC_MARKNUM_FOLDEROPEN, wxSTC_MARK_BOXMINUS, foldMarkerColor, foldMarkerBorder);
@@ -1158,12 +1180,13 @@ void MySTC::ApplyTheme(bool isDark) {
     MarkerDefine(wxSTC_MARKNUM_FOLDEROPENMID, wxSTC_MARK_BOXMINUSCONNECTED, foldMarkerColor, foldMarkerBorder);
     MarkerDefine(wxSTC_MARKNUM_FOLDERMIDTAIL, wxSTC_MARK_TCORNER, foldMarkerColor, foldMarkerBorder);
 
-    // 7. 辅助样式（缩进导线与括号高亮）
+    // 8. 辅助样式（缩进导线与括号高亮）
     StyleSetForeground(wxSTC_STYLE_INDENTGUIDE, isDark ? wxColour(0x40, 0x40, 0x40) : wxColour(0xCC, 0xCC, 0xCC));
+    StyleSetBackground(wxSTC_STYLE_INDENTGUIDE, bgColor);
     StyleSetForeground(wxSTC_STYLE_BRACELIGHT, isDark ? wxColour(0x00, 0xFF, 0x00) : wxColour(0x00, 0x00, 0xFF));
     StyleSetBackground(wxSTC_STYLE_BRACELIGHT, isDark ? wxColour(0x3E, 0x3E, 0x42) : wxColour(0xDF, 0xDF, 0xFF));
 
-    // 8. 重新初始化自定义标记样式
+    // 9. 重新初始化自定义标记样式
     ChangeAllStyleBackground(bgColor);
     ChangeAllStyleForeground(fgColor);
     InitStyles();
