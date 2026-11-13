@@ -1478,15 +1478,18 @@ void MainFrame::OnGlobalSettings(wxCommandEvent& event) {
 
         m_scintilla->SetPreviewPicLength(settingsDialog.changedData.dm_ImagePreviewMaxSize);
 
-        bool themeChanged = (settingsDialog.originData.dm_themeMode != settingsDialog.changedData.dm_themeMode ||
-                             settingsDialog.originData.dm_darkmode != settingsDialog.changedData.dm_darkmode ||
-                             settingsDialog.originData.dm_DarkModeThemeColor != settingsDialog.changedData.dm_DarkModeThemeColor ||
-                             settingsDialog.originData.dm_DefaultThemeColor != settingsDialog.changedData.dm_DefaultThemeColor);
-        if (themeChanged) {
+        bool needRestart = (settingsDialog.originData.dm_themeMode != settingsDialog.changedData.dm_themeMode ||
+                            settingsDialog.originData.dm_darkmode != settingsDialog.changedData.dm_darkmode ||
+                            settingsDialog.originData.dm_DarkModeThemeColor != settingsDialog.changedData.dm_DarkModeThemeColor ||
+                            settingsDialog.originData.dm_DefaultThemeColor != settingsDialog.changedData.dm_DefaultThemeColor ||
+                            settingsDialog.originData.dm_toolbarIconSize != settingsDialog.changedData.dm_toolbarIconSize ||
+                            settingsDialog.originData.dm_treeIconSize != settingsDialog.changedData.dm_treeIconSize ||
+                            settingsDialog.originData.dm_hideNavbar != settingsDialog.changedData.dm_hideNavbar);
+        if (needRestart) {
             auto app = GetMyAppInstance();
             app->SetThemeMode(static_cast<ThemeMode>(settingsDialog.changedData.dm_themeMode));
-            if (wxMessageBox(L"外观设置已保存。需要重启软件以应用新外观，是否立即重启？",
-                             L"提示", wxYES_NO | wxICON_QUESTION, this) == wxYES) {
+            if (wxMessageBox(L"部分设置（如外观模式、图标尺寸或隐藏导航条）需要重启软件后生效。\n是否立即重启？",
+                             L"设置已更新", wxYES_NO | wxICON_QUESTION, this) == wxYES) {
                 OnRestart();
                 return;
             }

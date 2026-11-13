@@ -531,16 +531,6 @@ void SettingDialog::OnOK(wxCommandEvent& event) {
     GetControlState();
     if (changedData != originData) {
         SaveConfig();
-        if (changedData.dm_toolbarIconSize != originData.dm_toolbarIconSize ||
-            changedData.dm_treeIconSize != originData.dm_treeIconSize ||
-            changedData.dm_hideNavbar != originData.dm_hideNavbar) {
-            wxMessageBox(
-                wxT("部分设置（如图标尺寸或隐藏导航条）需要在重启程序后才能生效。"),
-                L"设置已更新",
-                wxOK | wxICON_INFORMATION,
-                this
-            );
-        }
     }
     EndModal(wxID_OK);
 }
