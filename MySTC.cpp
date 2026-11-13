@@ -1169,7 +1169,7 @@ void MySTC::ApplyTheme(bool isDark) {
     InitStyles();
 
     // 9. 重新应用当前配置的字体
-    wxFont contentFont = m_mainFrame ? m_mainFrame->m_contentFont : ReadFontFromConfig();
+    wxFont contentFont = ReadFontFromConfig();
     ChangeEditorFont(contentFont);
 
     // 10. 计算行号宽度
