@@ -1822,12 +1822,22 @@ void MyTreeCtrl::InitTreeCtrlIcons(){
 void MyTreeCtrl::ApplyTheme(bool isDark) {
     HWND hwndTree = (HWND)GetHWND();
     if (hwndTree) {
+        COLORREF bgRef = isDark ? RGB(0x1E, 0x1E, 0x1E) : RGB(0xFF, 0xFF, 0xFF);
+        COLORREF fgRef = isDark ? RGB(0xD4, 0xD4, 0xD4) : RGB(0x00, 0x00, 0x00);
+        TreeView_SetBkColor(hwndTree, bgRef);
+        TreeView_SetTextColor(hwndTree, fgRef);
         ::SetWindowTheme(hwndTree, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+        ::SendMessageW(hwndTree, WM_THEMECHANGED, 0, 0);
     }
     SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
     SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
     InitTreeCtrlIcons();
+    if (hwndTree) {
+        ::InvalidateRect(hwndTree, NULL, TRUE);
+        ::UpdateWindow(hwndTree);
+    }
     Refresh();
+    Update();
 }
 
 wxString MyTreeCtrl::MakePath(const wxTreeItemId& item){

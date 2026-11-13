@@ -1186,13 +1186,26 @@ void MainFrame::UpdateToolBarIcons() {
     bool isDark = GetMyAppInstance()->GetDarkMode();
     wxColour tbBg = isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary;
     toolBar->SetBackgroundColour(tbBg);
+
+    HWND hwndTB = (HWND)toolBar->GetHWND();
+    if (hwndTB) {
+        ::SetWindowTheme(hwndTB, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+        ::SendMessageW(hwndTB, WM_THEMECHANGED, 0, 0);
+    }
+
     if (m_labelNav) {
         m_labelNav->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
         m_labelNav->SetBackgroundColour(tbBg);
     }
     if (m_Choice) {
+        HWND hwndChoice = (HWND)m_Choice->GetHWND();
+        if (hwndChoice) {
+            ::SetWindowTheme(hwndChoice, isDark ? L"DarkMode_CFD" : L"Explorer", NULL);
+            ::SendMessageW(hwndChoice, WM_THEMECHANGED, 0, 0);
+        }
         m_Choice->SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
         m_Choice->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
+        m_Choice->Refresh();
     }
     toolBar->Realize();
     toolBar->Refresh();
@@ -1202,10 +1215,11 @@ void MainFrame::ApplyTheme(bool isDark) {
     auto app = GetMyAppInstance();
     app->SetDarkMode(isDark);
 
-    // 1. 设置主窗口标题栏 DWM 沉浸式暗色
+    // 1. 设置主窗口背景与标题栏 DWM 沉浸式暗色
     SetWindowDarkMode(m_hMainFrame, isDark);
+    SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
 
-    // 2. 更新工具栏及图标
+    // 2. 更新工具栏及图标与下拉框
     UpdateToolBarIcons();
 
     // 3. 树形控件主题与图标刷新
@@ -1223,14 +1237,29 @@ void MainFrame::ApplyTheme(bool isDark) {
         m_cardViewPanel->ApplyTheme(isDark);
     }
 
-    // 6. 分割条与状态栏
+    // 6. 容器层（m_simplebook、m_splitter）
+    if (m_simplebook) {
+        m_simplebook->SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
+        m_simplebook->Refresh();
+    }
     if (m_splitter) {
         m_splitter->SetBackgroundColour(isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary);
+        m_splitter->Refresh();
     }
+
+    // 7. 状态栏
     if (m_statusBar) {
         m_statusBar->SetBackgroundColour(isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary);
         m_statusBar->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
         m_statusBar->Refresh();
+    }
+
+    // 8. 顶层窗口刷新
+    if (m_hMainFrame) {
+        ::SendMessageW(m_hMainFrame, WM_THEMECHANGED, 0, 0);
+        ::SetWindowPos(m_hMainFrame, NULL, 0, 0, 0, 0,
+                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        ::RedrawWindow(m_hMainFrame, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME | RDW_UPDATENOW);
     }
 
     Refresh();

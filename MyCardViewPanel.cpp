@@ -218,6 +218,11 @@ void MyCardViewPanel::ClearView(){
 }
 
 void MyCardViewPanel::ApplyTheme(bool isDark) {
+    HWND hwndPanel = (HWND)GetHWND();
+    if (hwndPanel) {
+        ::SetWindowTheme(hwndPanel, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+        ::SendMessageW(hwndPanel, WM_THEMECHANGED, 0, 0);
+    }
     SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
     if (m_emptyMessageText) {
         m_emptyMessageText->SetForegroundColour(isDark ? ThemeColours::DarkTextSecondary : wxColour(128, 128, 128));

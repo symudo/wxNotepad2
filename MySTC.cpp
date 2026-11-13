@@ -17,9 +17,6 @@ MySTC::MySTC(wxWindow* parent, MainFrame* mainFrame, wxWindowID id) : wxStyledTe
     SetScrollWidthTracking(true);
 
     SetMarginType(0, wxSTC_MARGIN_NUMBER);
-    ApplyTheme(GetMyAppInstance()->GetDarkMode());
-    wxFont contentFont = ReadFontFromConfig();
-    ChangeEditorFont(contentFont);
 
     /*SetEdgeMode(wxSTC_EDGE_LINE);
     SetEdgeColumn(80);*/
@@ -32,7 +29,6 @@ MySTC::MySTC(wxWindow* parent, MainFrame* mainFrame, wxWindowID id) : wxStyledTe
     InitHotLinks();
     // 初始化指示器和正则表达式
     InitRegExprAndIndicators();
-    InitStyles();
 
     initBind();
     SetDropTarget(new CompositeDropTarget(this));
@@ -52,25 +48,17 @@ MySTC::MySTC(wxWindow* parent, MainFrame* mainFrame, wxWindowID id) : wxStyledTe
     SetWrapIndentMode(wxSTC_WRAPINDENT_DEEPINDENT);
     //设置折叠标识
     SetMarginType(2, wxSTC_MARGIN_SYMBOL);
-
     SetMarginWidth(2, FromDIP(16));
     SetMarginMask(2, wxSTC_MASK_FOLDERS);
     SetMarginSensitive(2, true);
     SetProperty("fold", "1");
-    wxColor foldMarginColor = *wxYELLOW;
-
     SetFoldFlags(wxSTC_FOLDFLAG_LINEAFTER_CONTRACTED);
-    MarkerDefine(wxSTC_MARKNUM_FOLDEROPEN, wxSTC_MARK_BOXMINUS, foldMarginColor, *wxRED); // 展开时
-    MarkerDefine(wxSTC_MARKNUM_FOLDER, wxSTC_MARK_BOXPLUS, foldMarginColor, *wxRED);  // 折叠时
-    MarkerDefine(wxSTC_MARKNUM_FOLDERSUB, wxSTC_MARK_VLINE, foldMarginColor, *wxRED);    // 子级连接线
-    MarkerDefine(wxSTC_MARKNUM_FOLDERTAIL, wxSTC_MARK_LCORNER, foldMarginColor, *wxRED);  // 底部拐角
-    MarkerDefine(wxSTC_MARKNUM_FOLDEREND, wxSTC_MARK_BOXPLUSCONNECTED, foldMarginColor, *wxRED);
-    MarkerDefine(wxSTC_MARKNUM_FOLDEROPENMID, wxSTC_MARK_BOXMINUSCONNECTED, foldMarginColor, *wxRED);
-    MarkerDefine(wxSTC_MARKNUM_FOLDERMIDTAIL, wxSTC_MARK_TCORNER, foldMarginColor, *wxRED);
-    //
+
     m_updatingTimer = new wxTimer(this);
     m_headerStack.reserve(16);
     m_pendingEmptyLines.reserve(32);
+
+    ApplyTheme(GetMyAppInstance()->GetDarkMode());
 }
 
 void MySTC::initBind() {
@@ -1128,6 +1116,7 @@ void MySTC::ApplyTheme(bool isDark) {
     HWND hwndSTC = (HWND)GetHWND();
     if (hwndSTC) {
         ::SetWindowTheme(hwndSTC, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+        ::SendMessageW(hwndSTC, WM_THEMECHANGED, 0, 0);
     }
     wxColour bgColor = isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase;
     wxColour fgColor = isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary;
@@ -1136,22 +1125,64 @@ void MySTC::ApplyTheme(bool isDark) {
     wxColour selBg = isDark ? ThemeColours::DarkSelection : ThemeColours::LightSelection;
     wxColour caretColor = isDark ? ThemeColours::DarkCaret : ThemeColours::LightCaret;
 
-    StyleSetBackground(0, bgColor);
-    StyleSetForeground(0, fgColor);
+    // 1. 设置默认样式并全量清空所有样式槽，确保没有任何槽位残留白色
     StyleSetBackground(wxSTC_STYLE_DEFAULT, bgColor);
     StyleSetForeground(wxSTC_STYLE_DEFAULT, fgColor);
+    StyleClearAll();
 
+    // 2. 基础文本样式 (Style 0)
+    StyleSetBackground(0, bgColor);
+    StyleSetForeground(0, fgColor);
+
+    // 3. 光标与选区
     SetCaretForeground(caretColor);
     SetSelBackground(true, selBg);
+    SetCaretLineBackground(isDark ? wxColour(0x2A, 0x2D, 0x2E) : wxColour(0xE8, 0xF2, 0xFF));
 
+    // 4. 行号边距 (Margin 0)
     StyleSetBackground(wxSTC_STYLE_LINENUMBER, marginBg);
     StyleSetForeground(wxSTC_STYLE_LINENUMBER, marginFg);
 
+    // 5. 折叠边距 (Margin 2)：设置专用颜色，消除 Scintilla 默认灰白相间的斑驳点阵
+    SetFoldMarginColour(true, marginBg);
+    SetFoldMarginHiColour(true, marginBg);
+
+    // 6. 折叠标记图标颜色
+    wxColour foldMarkerColor = isDark ? wxColour(0x85, 0x85, 0x85) : wxColour(0x80, 0x80, 0x80);
+    wxColour foldMarkerBorder = isDark ? wxColour(0x55, 0x55, 0x55) : wxColour(0xA0, 0xA0, 0xA0);
+    MarkerDefine(wxSTC_MARKNUM_FOLDEROPEN, wxSTC_MARK_BOXMINUS, foldMarkerColor, foldMarkerBorder);
+    MarkerDefine(wxSTC_MARKNUM_FOLDER, wxSTC_MARK_BOXPLUS, foldMarkerColor, foldMarkerBorder);
+    MarkerDefine(wxSTC_MARKNUM_FOLDERSUB, wxSTC_MARK_VLINE, foldMarkerColor, foldMarkerBorder);
+    MarkerDefine(wxSTC_MARKNUM_FOLDERTAIL, wxSTC_MARK_LCORNER, foldMarkerColor, foldMarkerBorder);
+    MarkerDefine(wxSTC_MARKNUM_FOLDEREND, wxSTC_MARK_BOXPLUSCONNECTED, foldMarkerColor, foldMarkerBorder);
+    MarkerDefine(wxSTC_MARKNUM_FOLDEROPENMID, wxSTC_MARK_BOXMINUSCONNECTED, foldMarkerColor, foldMarkerBorder);
+    MarkerDefine(wxSTC_MARKNUM_FOLDERMIDTAIL, wxSTC_MARK_TCORNER, foldMarkerColor, foldMarkerBorder);
+
+    // 7. 辅助样式（缩进导线与括号高亮）
+    StyleSetForeground(wxSTC_STYLE_INDENTGUIDE, isDark ? wxColour(0x40, 0x40, 0x40) : wxColour(0xCC, 0xCC, 0xCC));
+    StyleSetForeground(wxSTC_STYLE_BRACELIGHT, isDark ? wxColour(0x00, 0xFF, 0x00) : wxColour(0x00, 0x00, 0xFF));
+    StyleSetBackground(wxSTC_STYLE_BRACELIGHT, isDark ? wxColour(0x3E, 0x3E, 0x42) : wxColour(0xDF, 0xDF, 0xFF));
+
+    // 8. 重新初始化自定义标记样式
     ChangeAllStyleBackground(bgColor);
     ChangeAllStyleForeground(fgColor);
     InitStyles();
+
+    // 9. 重新应用当前配置的字体
+    wxFont contentFont = m_mainFrame ? m_mainFrame->m_contentFont : ReadFontFromConfig();
+    ChangeEditorFont(contentFont);
+
+    // 10. 计算行号宽度
     UpdateLineNumberMarginWidth(true);
+
+    // 11. 若已加载文档，全文重着色并更新指示器
+    if (GetTextLength() > 0) {
+        Colourise(0, -1);
+        UpdateRegionIndicators();
+    }
+
     Refresh();
+    Update();
 }
 
 MySTC::~MySTC() {
