@@ -342,20 +342,7 @@ bool MainFrame::MSWHandleMessage(WXLRESULT* result, WXUINT message, WXWPARAM wPa
             return true;
         }
     }
-    if (message == WM_SETTINGCHANGE) {
-        if (lParam != 0) {
-            const wchar_t* paramStr = reinterpret_cast<const wchar_t*>(lParam);
-            if (paramStr && (wcscmp(paramStr, L"ImmersiveColorSet") == 0 || wcscmp(paramStr, L"WindowsTheme") == 0)) {
-                auto app = GetMyAppInstance();
-                if (app && app->GetThemeMode() == ThemeMode::System) {
-                    bool newDark = IsWindowsSystemDarkMode();
-                    if (newDark != app->GetDarkMode()) {
-                        ApplyTheme(newDark);
-                    }
-                }
-            }
-        }
-    }
+
     return wxFrame::MSWHandleMessage(result, message, wParam, lParam);
 }
 
@@ -1153,13 +1140,6 @@ void MainFrame::OnOutlineSelect(wxCommandEvent& event) {
 
 void MainFrame::OnSysColorChange2(wxSysColourChangedEvent& event) {
     event.Skip();
-    auto app = GetMyAppInstance();
-    if (app && app->GetThemeMode() == ThemeMode::System) {
-        bool newDark = IsWindowsSystemDarkMode();
-        if (newDark != app->GetDarkMode()) {
-            ApplyTheme(newDark);
-        }
-    }
 }
 
 void MainFrame::UpdateToolBarIcons() {
@@ -1505,9 +1485,11 @@ void MainFrame::OnGlobalSettings(wxCommandEvent& event) {
         if (themeChanged) {
             auto app = GetMyAppInstance();
             app->SetThemeMode(static_cast<ThemeMode>(settingsDialog.changedData.dm_themeMode));
-            bool isDark = (settingsDialog.changedData.dm_themeMode == 2) ||
-                          (settingsDialog.changedData.dm_themeMode == 0 && IsWindowsSystemDarkMode());
-            ApplyTheme(isDark);
+            if (wxMessageBox(L"外观设置已保存。需要重启软件以应用新外观，是否立即重启？",
+                             L"提示", wxYES_NO | wxICON_QUESTION, this) == wxYES) {
+                OnRestart();
+                return;
+            }
         }
     }
     RegisterGlobalHotkey();
