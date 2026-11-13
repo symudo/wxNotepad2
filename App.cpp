@@ -14,14 +14,16 @@ void MyApp::UpdateThemeColor() {
     wxConfigBase* config = wxConfigBase::Get();
     if (m_DarkMode) {
         wxTheApp->SetAppearance(wxApp::Appearance::Dark);
-        auto full_color_str = config->Read("MainWindow/DarkModeThemeColor", "#B0B0B0");
-        auto final_color = ValidateAndExtractColor(full_color_str, "B0B0B0");
-        strcpy(themeColor, final_color.c_str());
+        wxString full_color_str = config ? config->Read("MainWindow/DarkModeThemeColor", "#B0B0B0") : wxString("#B0B0B0");
+        wxString final_color = ValidateAndExtractColor(full_color_str, "B0B0B0");
+        const char* final_color_code = final_color.c_str();
+        strcpy(themeColor, final_color_code);
     } else {
         wxTheApp->SetAppearance(wxApp::Appearance::Light);
-        auto full_color_str = config->Read("MainWindow/DefaultThemeColor", "#1F1F1F");
-        auto final_color = ValidateAndExtractColor(full_color_str, "1F1F1F");
-        strcpy(themeColor, final_color.c_str());
+        wxString full_color_str = config ? config->Read("MainWindow/DefaultThemeColor", "#1F1F1F") : wxString("#1F1F1F");
+        wxString final_color = ValidateAndExtractColor(full_color_str, "1F1F1F");
+        const char* final_color_code = final_color.c_str();
+        strcpy(themeColor, final_color_code);
     }
 }
 

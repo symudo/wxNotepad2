@@ -149,7 +149,7 @@ public:
     wxTreeItemId GetCurrentItem() const{ return m_currentItem; }
 private:
     MainFrame* m_mainFrame;
-    wxImageList* m_imageListTreeCtrl;
+    wxImageList* m_imageListTreeCtrl = nullptr;
     wxTreeItemId m_hiddenRoot;
     wxTreeItemId m_currentItem;	//当前节点
     wxTreeItemId m_draggedItem;	//拖动节点

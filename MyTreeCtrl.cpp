@@ -11,9 +11,7 @@
 #include <wx/weakref.h>
 
 MyTreeCtrl::MyTreeCtrl(wxWindow* parent, MainFrame* mainFrame, wxWindowID id, const wxPoint& pos, const wxSize& size, long style)
-    : wxTreeCtrl(parent, id, pos, size, style), m_mainFrame(mainFrame), m_isDragging(false), m_dropPosition(0){
-    InitTreeCtrlIcons();
-    SetImageList(m_imageListTreeCtrl);
+    : wxTreeCtrl(parent, id, pos, size, style), m_mainFrame(mainFrame), m_imageListTreeCtrl(nullptr), m_isDragging(false), m_dropPosition(0){
     Initialization();
     ApplyTheme(GetMyAppInstance()->GetDarkMode());
 }
