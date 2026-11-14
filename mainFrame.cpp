@@ -1497,7 +1497,7 @@ void MainFrame::OnGlobalSettings(wxCommandEvent& event) {
         if (needRestart) {
             auto app = GetMyAppInstance();
             app->SetThemeMode(static_cast<ThemeMode>(settingsDialog.changedData.dm_themeMode));
-            if (wxMessageBox(L"部分设置（如外观模式、图标尺寸或隐藏导航条）需要重启软件后生效。\n是否立即重启？",
+            if (wxMessageBox(L"部分设置（如外观模式、图标尺寸或工具栏大纲跳转栏）需要重启软件后生效。\n是否立即重启？",
                              L"设置已更新", wxYES_NO | wxICON_QUESTION, this) == wxYES) {
                 OnRestart();
                 return;

@@ -122,7 +122,7 @@ bool SettingDialog::Create(wxWindow* parent, wxWindowID id, const wxString& titl
     m_stcBGcolor->SetMinSize(ConvertDialogToPixels(wxSize(50, 10)));
     flex_grid_sizer2->Add(m_stcBGcolor, wxSizerFlags().Border(wxALL));
 
-    m_hideNavbar = new wxCheckBox(page2, wxID_ANY, wxT("隐藏导航条"));
+    m_hideNavbar = new wxCheckBox(page2, wxID_ANY, wxT("隐藏工具栏大纲跳转栏"));
     flex_grid_sizer2->Add(m_hideNavbar, wxSizerFlags().Border(wxALL));
     page2->SetSizerAndFit(flex_grid_sizer2);
     //page 3

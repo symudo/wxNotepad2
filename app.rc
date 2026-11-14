@@ -2,7 +2,7 @@
 //
 #include "resource.h"
 /////////////////////////////////////////////////////////////////////////////
-// 中文(简体，中国) resources
+// 涓枃(绠�浣擄紝涓浗) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
 LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
@@ -44,8 +44,8 @@ IDR_HTML_INDEX HTML "index.html"
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 2,0,7
- PRODUCTVERSION 2,0,7
+ FILEVERSION 2,0,8
+ PRODUCTVERSION 2,0,8
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -62,12 +62,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "ibulis"
             VALUE "FileDescription", "wxNotepad2 - A simple notepad"
-            VALUE "FileVersion", "2.0.7"
+            VALUE "FileVersion", "2.0.8"
             VALUE "InternalName", "wxNotepad2"
             VALUE "LegalCopyright", "Copyright (C) 2025-2026 ibulis"
             VALUE "OriginalFilename", "wxNotepad2.exe"
             VALUE "ProductName", "wxNotepad2"
-            VALUE "ProductVersion", "2.0.7"
+            VALUE "ProductVersion", "2.0.8"
         END
     END
     BLOCK "VarFileInfo"
@@ -76,7 +76,7 @@ BEGIN
     END
 END
 
-#endif    // 中文(简体，中国) resources
+#endif    // 涓枃(绠�浣擄紝涓浗) resources
 /////////////////////////////////////////////////////////////////////////////
 
 
