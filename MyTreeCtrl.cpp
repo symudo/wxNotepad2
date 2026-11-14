@@ -197,24 +197,28 @@ void MyTreeCtrl::Initialization(){
     sqlite3_finalize(stmt);
     sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL);
     Freeze();
-    int procesedCount = 0;
-    bool ProcessInThisLoop = true;
-    while (ProcessInThisLoop && procesedCount < pathRecords.size()){
-        ProcessInThisLoop = false;
-        for (const auto& record : pathRecords){
-            if (m_idToData.count(record.ID) == 0){//未处理节点
-                wxTreeItemId parentTreeId = m_idToItem[record.parentID];
-                if (parentTreeId == NULL){//父节点不存在，跳过
-                    continue;
-                }
-                MyTreeItemData* data = new MyTreeItemData(record);
-                m_idToData[record.ID] = data;
-                wxTreeItemId itemId = AppendItem(parentTreeId, record.name, GetIconIndex(record.stateIcon), -1, data);
-                m_idToItem[record.ID] = itemId;
-                procesedCount++;
-                ProcessInThisLoop = true;
-            }
+    std::unordered_map<int, std::vector<PathRecord>> childrenMap;
+    for (auto& record : pathRecords) {
+        childrenMap[record.parentID].push_back(std::move(record));
+    }
+
+    std::function<void(int, const wxTreeItemId&)> appendChildren = [&](int parentID, const wxTreeItemId& parentTreeId) {
+        auto it = childrenMap.find(parentID);
+        if (it == childrenMap.end()) return;
+        for (const auto& record : it->second) {
+            MyTreeItemData* data = new MyTreeItemData(record);
+            m_idToData[record.ID] = data;
+            wxTreeItemId itemId = AppendItem(parentTreeId, record.name, GetIconIndex(record.stateIcon), -1, data);
+            m_idToItem[record.ID] = itemId;
+            appendChildren(record.ID, itemId);
         }
+    };
+
+    if (m_idToItem.count(FolderRootID) && m_idToItem[FolderRootID].IsOk()) {
+        appendChildren(FolderRootID, m_idToItem[FolderRootID]);
+    }
+    if (m_idToItem.count(TrashRootID) && m_idToItem[TrashRootID].IsOk()) {
+        appendChildren(TrashRootID, m_idToItem[TrashRootID]);
     }
     //展开指定节点
     Expand(m_idToItem[FolderRootID]);
@@ -1363,7 +1367,7 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
         auto findText = searchRootData->GetName();
         //搜索也对extension条目生效
         const char* sql =
-            "SELECT p.ID, snippet(NOTES_FTS, 0, '', '', '...', 10) AS preview " // 获取上下文
+            "SELECT p.ID, snippet(NOTES_FTS, 0, '', '', '...', 10) AS preview, n.MODIFY_TIME " // 获取上下文与修改时间
             "FROM NOTES_FTS "
             "JOIN NOTES n ON NOTES_FTS.rowid = n.ID " // FTS5的rowid就是NOTES表的ID
             "JOIN PATHS p ON n.PATH_ID = p.ID " // 路径表
@@ -1394,7 +1398,15 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
             auto name = m_idToData[pathID]->GetName();
             auto notePath = MakePath(m_idToItem[pathID]);
             auto noteID = m_idToData[pathID]->GetNoteID();
-            wxString noteTimestamp = GetNoteTimestamp(db, noteID, 1);
+            wxString noteTimestamp;
+            const char* timeText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+            if (timeText) {
+                wxDateTime dt;
+                if (dt.ParseDateTime(wxString::FromUTF8(timeText))) {
+                    dt.MakeFromTimezone(wxDateTime::UTC);
+                    noteTimestamp = dt.Format("%Y-%m-%d %H:%M:%S");
+                }
+            }
             CardData cardData{ 1,name,notePath ,L"修改时间：" + noteTimestamp ,context ,pathID,m_idToItem[pathID],noteID };
             cardList->push_back(std::move(cardData));
         }

@@ -98,11 +98,12 @@ bool MyApp::OnInit() {
         sqlite3_close(db);
         return false;
     }
-    //rc = sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);//启用WAL
-    //if (rc != SQLITE_OK) {
-    //    sqlite3_close(db);
-    //    return false;
-    //}
+    // 启用 WAL 模式与内存性能优化
+    sqlite3_exec(db, "PRAGMA journal_mode = WAL;", NULL, NULL, NULL);
+    sqlite3_exec(db, "PRAGMA synchronous = NORMAL;", NULL, NULL, NULL);
+    sqlite3_exec(db, "PRAGMA cache_size = -16384;", NULL, NULL, NULL);
+    sqlite3_exec(db, "PRAGMA temp_store = MEMORY;", NULL, NULL, NULL);
+
     char* err_msg = 0;
     const char* sql_batch =
         "BEGIN TRANSACTION;"
@@ -125,11 +126,7 @@ bool MyApp::OnInit() {
     //临时增加字段（在后继版本中合并到sql_batch中）
     sqlite3_exec(db, "ALTER TABLE NOTES ADD COLUMN URL TEXT; ", 0, 0, 0);
     sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS IDX_NOTES_URL ON NOTES(URL);", 0, 0, 0);
-
-
-    //设置数据库缓存16MB
-    //sqlite3_exec(db, "PRAGMA cache_size = -16384;", 0, 0, 0);
-    //sqlite3_exec(db, "PRAGMA temp_store = MEMORY;", 0,0,0);
+    sqlite3_exec(db, SQLITE_CREATE_CORE_INDEXES, 0, 0, 0);
 
     sqlite3_free(err_msg);
     err_msg = nullptr;

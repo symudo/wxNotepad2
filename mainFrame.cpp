@@ -710,11 +710,20 @@ bool MainFrame::SaveNoteContent(int noteID) {
     if (!m_scintilla || noteID == -1) {
         return false;
     }
+    const bool contentModified = m_scintilla->GetModify();
+    const bool styleModified = m_scintilla->m_styleModified;
+
+    // 若内容和样式均未改动，直接返回，避免无谓的磁盘写事务
+    if (!contentModified && !styleModified) {
+        if (noteID == m_currentNoteID) {
+            m_autoSaveTimer.Stop();
+        }
+        return true;
+    }
+
     sqlite3* db = GetMyAppInstance()->db;
     sqlite3_stmt* stmt = nullptr;
     bool success = false;
-    const bool contentModified = m_scintilla->GetModify();
-    const bool styleModified = m_scintilla->m_styleModified;
 
     auto bindStyleBlob = [this](sqlite3_stmt* targetStmt, int paramIndex) {
         std::vector<UINT16> styleData;
