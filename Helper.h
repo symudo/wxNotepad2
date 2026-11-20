@@ -670,24 +670,43 @@ inline void ApplyControlThemeRecursive(wxWindow* win, bool isDark) {
     }
 
     HWND hwnd = (HWND)win->GetHWND();
-    if (hwnd) {
-        ::SetWindowTheme(hwnd, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
-    }
-
     if (isDark) {
-        if (cls == "wxHyperlinkCtrl") {
+        if (cls == "wxCheckBox" || cls == "wxRadioButton" || cls == "wxStaticBox") {
+            // 关闭系统浅色主题覆写，确保复选框/分组框在深色背景下正常绘制深底浅字
+            if (hwnd) ::SetWindowTheme(hwnd, L"", L"");
+            win->SetBackgroundColour(ThemeColours::DarkBgBase);
+            win->SetForegroundColour(ThemeColours::DarkTextPrimary);
+        } else if (cls == "wxHyperlinkCtrl") {
+            if (hwnd) ::SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
             win->SetBackgroundColour(ThemeColours::DarkBgBase);
             win->SetForegroundColour(wxColour(0x4E, 0xA1, 0xFF));
         } else if (cls == "wxButton" || cls == "wxBitmapButton") {
+            if (hwnd) ::SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
             win->SetBackgroundColour(ThemeColours::DarkBgSecondary);
             win->SetForegroundColour(ThemeColours::DarkTextPrimary);
         } else if (cls == "wxTextCtrl" || cls == "wxChoice" || cls == "wxComboBox" || cls == "wxSpinCtrl") {
+            if (hwnd) ::SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
             win->SetBackgroundColour(ThemeColours::DarkBgSecondary);
             win->SetForegroundColour(ThemeColours::DarkTextPrimary);
         } else {
+            if (hwnd) ::SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
             win->SetBackgroundColour(ThemeColours::DarkBgBase);
             win->SetForegroundColour(ThemeColours::DarkTextPrimary);
+            // 阻断 wxNotebook Tab 页、wxScrolledWindow 与 wxDialog 子类被 Windows 主题刷回纯白背景
+            if (wxDynamicCast(win, wxPanel) != nullptr || wxDynamicCast(win, wxDialog) != nullptr) {
+                win->Bind(wxEVT_ERASE_BACKGROUND, [](wxEraseEvent& evt) {
+                    wxDC* dc = evt.GetDC();
+                    if (!dc) return;
+                    wxWindow* target = wxDynamicCast(evt.GetEventObject(), wxWindow);
+                    if (!target) return;
+                    dc->SetBrush(wxBrush(ThemeColours::DarkBgBase));
+                    dc->SetPen(*wxTRANSPARENT_PEN);
+                    dc->DrawRectangle(target->GetClientRect());
+                });
+            }
         }
+    } else if (hwnd) {
+        ::SetWindowTheme(hwnd, L"Explorer", NULL);
     }
 
     for (wxWindow* child : win->GetChildren()) {

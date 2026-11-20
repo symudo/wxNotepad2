@@ -20,31 +20,25 @@ public:
         : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_SIMPLE), m_stc(stc) {
         wxBoxSizer* rootSizer = new wxBoxSizer(wxVERTICAL);
 
-        // 第一行：查找
+        // 第一行：查找输入框 + 上/下导航 + 关闭
         wxBoxSizer* findRow = new wxBoxSizer(wxHORIZONTAL);
         m_findLabel = new wxStaticText(this, wxID_ANY, L"查找:");
-        m_findCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(220), -1), wxTE_PROCESS_ENTER);
-        m_statusLabel = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(90), -1), wxST_NO_AUTORESIZE);
+        m_findCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(80), -1), wxTE_PROCESS_ENTER);
         m_prevBtn = new wxButton(this, wxID_ANY, L"上一个", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
         m_nextBtn = new wxButton(this, wxID_ANY, L"下一个", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-        m_caseCheck = new wxCheckBox(this, wxID_ANY, L"区分大小写");
-        m_wholeCheck = new wxCheckBox(this, wxID_ANY, L"全词");
-        m_closeBtn = new wxButton(this, wxID_ANY, L"✕", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+        m_closeBtn = new wxButton(this, wxID_ANY, L"✕", wxDefaultPosition, wxSize(FromDIP(26), -1), wxBU_EXACTFIT);
         m_closeBtn->SetToolTip(L"关闭查找栏 (Esc)");
 
         findRow->Add(m_findLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
         findRow->Add(m_findCtrl, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
-        findRow->Add(m_statusLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
         findRow->Add(m_prevBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
-        findRow->Add(m_nextBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
-        findRow->Add(m_caseCheck, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
-        findRow->Add(m_wholeCheck, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        findRow->Add(m_nextBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
         findRow->Add(m_closeBtn, 0, wxALIGN_CENTER_VERTICAL);
 
-        // 第二行：替换
+        // 第二行：替换输入框 + 替换 / 全部替换
         wxBoxSizer* replaceRow = new wxBoxSizer(wxHORIZONTAL);
         m_replaceLabel = new wxStaticText(this, wxID_ANY, L"替换:");
-        m_replaceCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(220), -1), wxTE_PROCESS_ENTER);
+        m_replaceCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(80), -1), wxTE_PROCESS_ENTER);
         m_replaceBtn = new wxButton(this, wxID_ANY, L"替换", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
         m_replaceAllBtn = new wxButton(this, wxID_ANY, L"全部替换", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
 
@@ -53,8 +47,20 @@ public:
         replaceRow->Add(m_replaceBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
         replaceRow->Add(m_replaceAllBtn, 0, wxALIGN_CENTER_VERTICAL);
 
-        rootSizer->Add(findRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
-        rootSizer->Add(replaceRow, 0, wxEXPAND | wxALL, FromDIP(6));
+        // 第三行：匹配选项 + 匹配计数/状态
+        wxBoxSizer* optionRow = new wxBoxSizer(wxHORIZONTAL);
+        m_caseCheck = new wxCheckBox(this, wxID_ANY, L"区分大小写");
+        m_wholeCheck = new wxCheckBox(this, wxID_ANY, L"全词");
+        m_statusLabel = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(100), -1), wxALIGN_RIGHT | wxST_NO_AUTORESIZE);
+
+        optionRow->Add(m_caseCheck, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(10));
+        optionRow->Add(m_wholeCheck, 0, wxALIGN_CENTER_VERTICAL);
+        optionRow->AddStretchSpacer(1);
+        optionRow->Add(m_statusLabel, 0, wxALIGN_CENTER_VERTICAL);
+
+        rootSizer->Add(findRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(5));
+        rootSizer->Add(replaceRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(5));
+        rootSizer->Add(optionRow, 0, wxEXPAND | wxALL, FromDIP(5));
         SetSizer(rootSizer);
 
         // 事件绑定
@@ -119,8 +125,17 @@ public:
         styleCtrl(m_findLabel, barBg, fg);
         styleCtrl(m_replaceLabel, barBg, fg);
         styleCtrl(m_statusLabel, barBg, subFg);
-        styleCtrl(m_caseCheck, barBg, fg);
-        styleCtrl(m_wholeCheck, barBg, fg);
+        auto styleCheck = [&](wxCheckBox* chk) {
+            if (!chk) return;
+            HWND hwnd = (HWND)chk->GetHWND();
+            if (hwnd) {
+                ::SetWindowTheme(hwnd, isDark ? L"" : L"Explorer", isDark ? L"" : NULL);
+            }
+            chk->SetBackgroundColour(barBg);
+            chk->SetForegroundColour(fg);
+        };
+        styleCheck(m_caseCheck);
+        styleCheck(m_wholeCheck);
         styleCtrl(m_findCtrl, inputBg, fg);
         styleCtrl(m_replaceCtrl, inputBg, fg);
         styleCtrl(m_prevBtn, barBg, fg);
