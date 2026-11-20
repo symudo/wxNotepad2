@@ -22,9 +22,11 @@ public:
 
 private:
     // UI 控件
-    wxScrolledWindow* m_tagPanel = nullptr;     // 标签 Token 的滚动容器
-    wxWrapSizer* m_tagSizer = nullptr;          // 标签 Token 的布局管理器
-    wxTextCtrl* m_newTagsTextCtrl = nullptr;    // 用户输入新标签的文本框
+    wxScrolledWindow* m_tagPanel = nullptr;          // 当前标签 Token 的滚动容器
+    wxWrapSizer* m_tagSizer = nullptr;               // 当前标签 Token 的布局管理器
+    wxScrolledWindow* m_availableTagPanel = nullptr; // 已有标签库滚动容器
+    wxWrapSizer* m_availableTagSizer = nullptr;      // 已有标签库布局管理器
+    wxTextCtrl* m_newTagsTextCtrl = nullptr;         // 用户输入新标签的文本框
     MainFrame* m_parent;
     // 输入数据：只读引用
     const std::unordered_map<int, wxString>& m_allTagsList;
@@ -37,10 +39,50 @@ private:
     // 内部方法
     void CreateControls();
     void PopulateExistingTags();
+    void PopulateAvailableTags();
     void AddTagToken(int tagId, const wxString& tagName);
     void OnTagTokenDelete(wxCommandEvent& event);
+    void OnQuickAddTag(wxCommandEvent& event);
     void OnOK(wxCommandEvent& event);
     void OnCancel(wxCommandEvent& event);
+};
+
+class GlobalSearchDialog : public wxDialog {
+public:
+    GlobalSearchDialog(wxWindow* parent, const wxString& initialText = wxEmptyString)
+        : wxDialog(parent, wxID_ANY, L"全局查找", wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE) {
+        wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
+        mainSizer->Add(new wxStaticText(this, wxID_ANY, L"查找所有笔记（同时搜索标题与正文）："), 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(12));
+
+        m_searchCtrl = new wxTextCtrl(this, wxID_ANY, initialText, wxDefaultPosition, wxSize(FromDIP(360), -1), wxTE_PROCESS_ENTER);
+        mainSizer->Add(m_searchCtrl, 0, wxEXPAND | wxALL, FromDIP(12));
+
+        wxBoxSizer* btnSizer = new wxBoxSizer(wxHORIZONTAL);
+        btnSizer->AddStretchSpacer();
+        wxButton* okBtn = new wxButton(this, wxID_OK, L"查找");
+        okBtn->SetDefault();
+        wxButton* cancelBtn = new wxButton(this, wxID_CANCEL, L"取消");
+        btnSizer->Add(okBtn, 0, wxRIGHT, FromDIP(8));
+        btnSizer->Add(cancelBtn, 0);
+        mainSizer->Add(btnSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
+
+        SetSizerAndFit(mainSizer);
+        ApplyDialogTheme(this, GetMyAppInstance()->GetDarkMode());
+        CenterOnParent();
+
+        m_searchCtrl->SetFocus();
+        if (!initialText.IsEmpty()) {
+            m_searchCtrl->SelectAll();
+        }
+        m_searchCtrl->Bind(wxEVT_TEXT_ENTER, [this](wxCommandEvent&) { EndModal(wxID_OK); });
+    }
+
+    wxString GetSearchText() const {
+        return m_searchCtrl ? m_searchCtrl->GetValue().Trim(true).Trim(false) : wxEmptyString;
+    }
+
+private:
+    wxTextCtrl* m_searchCtrl = nullptr;
 };
 
 class AboutDialog : public wxDialog {
@@ -66,8 +108,8 @@ public:
 
         topSizer->Add(new wxStaticText(this, wxID_ANY, L"项目主页："), 0, wxALL, 0);
         wxHyperlinkCtrl* link = new wxHyperlinkCtrl(this, wxID_ANY,
-            L"https://codeberg.org/ibulis/wxNotepad2",
-            L"https://codeberg.org/ibulis/wxNotepad2");
+            L"https://github.com/symudo/wxNotepad2",
+            L"https://github.com/symudo/wxNotepad2");
         topSizer->Add(link, 0, wxALL, 0);
 
         wxString dataInfo = L"\n本产品根据GNU GPLv3许可提供给您。";
@@ -79,6 +121,7 @@ public:
         mainSizer->Add(okButton, 0, wxALIGN_CENTER_HORIZONTAL|wxALL , 15);
 
         SetSizerAndFit(mainSizer);
+        ApplyDialogTheme(this, GetMyAppInstance()->GetDarkMode());
         CenterOnParent();
     }
 };

@@ -14,6 +14,325 @@
 #include "MongooseServer.h"
 #include "resource.h"
 
+class FindReplaceBar : public wxPanel {
+public:
+    FindReplaceBar(wxWindow* parent, MySTC* stc)
+        : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_SIMPLE), m_stc(stc) {
+        wxBoxSizer* rootSizer = new wxBoxSizer(wxVERTICAL);
+
+        // 第一行：查找
+        wxBoxSizer* findRow = new wxBoxSizer(wxHORIZONTAL);
+        m_findLabel = new wxStaticText(this, wxID_ANY, L"查找:");
+        m_findCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(220), -1), wxTE_PROCESS_ENTER);
+        m_statusLabel = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(90), -1), wxST_NO_AUTORESIZE);
+        m_prevBtn = new wxButton(this, wxID_ANY, L"上一个", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+        m_nextBtn = new wxButton(this, wxID_ANY, L"下一个", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+        m_caseCheck = new wxCheckBox(this, wxID_ANY, L"区分大小写");
+        m_wholeCheck = new wxCheckBox(this, wxID_ANY, L"全词");
+        m_closeBtn = new wxButton(this, wxID_ANY, L"✕", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+        m_closeBtn->SetToolTip(L"关闭查找栏 (Esc)");
+
+        findRow->Add(m_findLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
+        findRow->Add(m_findCtrl, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+        findRow->Add(m_statusLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+        findRow->Add(m_prevBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
+        findRow->Add(m_nextBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        findRow->Add(m_caseCheck, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+        findRow->Add(m_wholeCheck, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        findRow->Add(m_closeBtn, 0, wxALIGN_CENTER_VERTICAL);
+
+        // 第二行：替换
+        wxBoxSizer* replaceRow = new wxBoxSizer(wxHORIZONTAL);
+        m_replaceLabel = new wxStaticText(this, wxID_ANY, L"替换:");
+        m_replaceCtrl = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(220), -1), wxTE_PROCESS_ENTER);
+        m_replaceBtn = new wxButton(this, wxID_ANY, L"替换", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+        m_replaceAllBtn = new wxButton(this, wxID_ANY, L"全部替换", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+
+        replaceRow->Add(m_replaceLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
+        replaceRow->Add(m_replaceCtrl, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+        replaceRow->Add(m_replaceBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
+        replaceRow->Add(m_replaceAllBtn, 0, wxALIGN_CENTER_VERTICAL);
+
+        rootSizer->Add(findRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(6));
+        rootSizer->Add(replaceRow, 0, wxEXPAND | wxALL, FromDIP(6));
+        SetSizer(rootSizer);
+
+        // 事件绑定
+        m_findCtrl->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { OnFindTextChanged(); });
+        m_prevBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { FindNext(false); });
+        m_nextBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { FindNext(true); });
+        m_caseCheck->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { UpdateMatchCount(); });
+        m_wholeCheck->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { UpdateMatchCount(); });
+        m_replaceBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ReplaceCurrent(); });
+        m_replaceAllBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ReplaceAll(); });
+        m_closeBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { CloseBar(); });
+
+        Bind(wxEVT_CHAR_HOOK, &FindReplaceBar::OnCharHook, this);
+    }
+
+    void Open(const wxString& initialText) {
+        if (!IsShown()) {
+            Show();
+            if (GetParent()) {
+                GetParent()->Layout();
+            }
+        }
+        if (!initialText.IsEmpty() && initialText.Find('\n') == wxNOT_FOUND && initialText.Find('\r') == wxNOT_FOUND) {
+            m_findCtrl->ChangeValue(initialText);
+        }
+        m_findCtrl->SetFocus();
+        m_findCtrl->SelectAll();
+        UpdateMatchCount();
+    }
+
+    void CloseBar() {
+        if (IsShown()) {
+            Hide();
+            if (GetParent()) {
+                GetParent()->Layout();
+            }
+            if (m_stc) {
+                m_stc->SetFocus();
+            }
+        }
+    }
+
+    void ApplyTheme(bool isDark) {
+        wxColour barBg = isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary;
+        wxColour inputBg = isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase;
+        wxColour fg = isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary;
+        wxColour subFg = isDark ? ThemeColours::DarkTextSecondary : ThemeColours::LightTextSecondary;
+
+        SetBackgroundColour(barBg);
+        SetForegroundColour(fg);
+
+        auto styleCtrl = [&](wxWindow* w, const wxColour& bg, const wxColour& textFg) {
+            if (!w) return;
+            HWND hwnd = (HWND)w->GetHWND();
+            if (hwnd) {
+                ::SetWindowTheme(hwnd, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+            }
+            w->SetBackgroundColour(bg);
+            w->SetForegroundColour(textFg);
+        };
+
+        styleCtrl(m_findLabel, barBg, fg);
+        styleCtrl(m_replaceLabel, barBg, fg);
+        styleCtrl(m_statusLabel, barBg, subFg);
+        styleCtrl(m_caseCheck, barBg, fg);
+        styleCtrl(m_wholeCheck, barBg, fg);
+        styleCtrl(m_findCtrl, inputBg, fg);
+        styleCtrl(m_replaceCtrl, inputBg, fg);
+        styleCtrl(m_prevBtn, barBg, fg);
+        styleCtrl(m_nextBtn, barBg, fg);
+        styleCtrl(m_replaceBtn, barBg, fg);
+        styleCtrl(m_replaceAllBtn, barBg, fg);
+        styleCtrl(m_closeBtn, barBg, fg);
+
+        Refresh();
+    }
+
+private:
+    int GetSearchFlags() const {
+        int flags = 0;
+        if (m_caseCheck && m_caseCheck->GetValue()) flags |= wxSTC_FIND_MATCHCASE;
+        if (m_wholeCheck && m_wholeCheck->GetValue()) flags |= wxSTC_FIND_WHOLEWORD;
+        return flags;
+    }
+
+    void OnCharHook(wxKeyEvent& event) {
+        int key = event.GetKeyCode();
+        if (key == WXK_ESCAPE) {
+            CloseBar();
+            return;
+        }
+        if (key == WXK_RETURN || key == WXK_NUMPAD_ENTER) {
+            wxWindow* focused = wxWindow::FindFocus();
+            if (focused == m_findCtrl) {
+                FindNext(!event.ShiftDown());
+                return;
+            }
+            if (focused == m_replaceCtrl) {
+                ReplaceCurrent();
+                return;
+            }
+        }
+        event.Skip();
+    }
+
+    void OnFindTextChanged() {
+        if (!m_stc) return;
+        wxString findText = m_findCtrl->GetValue();
+        if (findText.IsEmpty()) {
+            m_statusLabel->SetLabel(wxEmptyString);
+            return;
+        }
+        const long findByteLen = static_cast<long>(findText.ToUTF8().length());
+        const int flags = GetSearchFlags();
+        const long docLen = m_stc->GetLength();
+        long startPos = m_stc->GetSelectionStart();
+        long foundPos = m_stc->FindText(startPos, docLen, findText, flags);
+        if (foundPos == -1 && startPos > 0) {
+            foundPos = m_stc->FindText(0, docLen, findText, flags);
+        }
+        if (foundPos != -1) {
+            m_stc->SetSelection(foundPos, foundPos + findByteLen);
+            m_stc->EnsureCaretVisible();
+        }
+        UpdateMatchCount();
+    }
+
+    void UpdateMatchCount() {
+        if (!m_stc) return;
+        wxString findText = m_findCtrl->GetValue();
+        if (findText.IsEmpty()) {
+            m_statusLabel->SetLabel(wxEmptyString);
+            return;
+        }
+        const long findByteLen = static_cast<long>(findText.ToUTF8().length());
+        if (findByteLen <= 0) {
+            m_statusLabel->SetLabel(wxEmptyString);
+            return;
+        }
+        const int flags = GetSearchFlags();
+        const long docLen = m_stc->GetLength();
+        const long selStart = m_stc->GetSelectionStart();
+        const long selEnd = m_stc->GetSelectionEnd();
+
+        int total = 0;
+        int currentIdx = 0;
+        long pos = 0;
+        constexpr int kMaxCount = 5000;
+        while (pos < docLen) {
+            long found = m_stc->FindText(pos, docLen, findText, flags);
+            if (found == -1) break;
+            ++total;
+            if (found == selStart && (found + findByteLen) == selEnd) {
+                currentIdx = total;
+            }
+            pos = found + findByteLen;
+            if (total >= kMaxCount) break;
+        }
+
+        if (total == 0) {
+            m_statusLabel->SetLabel(L"无匹配");
+        } else if (total >= kMaxCount) {
+            m_statusLabel->SetLabel(currentIdx > 0 ? wxString::Format(L"%d/%d+", currentIdx, kMaxCount) : wxString::Format(L"%d+ 处", kMaxCount));
+        } else if (currentIdx > 0) {
+            m_statusLabel->SetLabel(wxString::Format(L"%d/%d", currentIdx, total));
+        } else {
+            m_statusLabel->SetLabel(wxString::Format(L"共 %d 处", total));
+        }
+    }
+
+    void FindNext(bool forward) {
+        if (!m_stc) return;
+        wxString findText = m_findCtrl->GetValue();
+        if (findText.IsEmpty()) {
+            m_statusLabel->SetLabel(wxEmptyString);
+            return;
+        }
+        const long findByteLen = static_cast<long>(findText.ToUTF8().length());
+        if (findByteLen <= 0) return;
+        const int flags = GetSearchFlags();
+        const long docLen = m_stc->GetLength();
+        long foundPos = -1;
+
+        if (forward) {
+            long startPos = m_stc->GetSelectionEnd();
+            foundPos = m_stc->FindText(startPos, docLen, findText, flags);
+            if (foundPos == -1) {
+                foundPos = m_stc->FindText(0, startPos, findText, flags);
+            }
+        } else {
+            long startPos = m_stc->GetSelectionStart();
+            if (startPos > 0) {
+                foundPos = m_stc->FindText(startPos, 0, findText, flags);
+            }
+            if (foundPos == -1) {
+                foundPos = m_stc->FindText(docLen, startPos, findText, flags);
+            }
+        }
+
+        if (foundPos != -1) {
+            m_stc->SetSelection(foundPos, foundPos + findByteLen);
+            m_stc->EnsureCaretVisible();
+        }
+        UpdateMatchCount();
+    }
+
+    void ReplaceCurrent() {
+        if (!m_stc) return;
+        if (m_stc->GetReadOnly()) {
+            m_statusLabel->SetLabel(L"只读模式");
+            return;
+        }
+        wxString findText = m_findCtrl->GetValue();
+        if (findText.IsEmpty()) return;
+        wxString replaceText = m_replaceCtrl->GetValue();
+        bool caseSensitive = m_caseCheck && m_caseCheck->GetValue();
+
+        // 根据区分大小写状态准确比对当前选区（修复忽略大小写时无法替换的 Bug）
+        wxString selected = m_stc->GetSelectedText();
+        if (selected.IsSameAs(findText, caseSensitive)) {
+            m_stc->ReplaceSelection(replaceText);
+        }
+        FindNext(true);
+    }
+
+    void ReplaceAll() {
+        if (!m_stc) return;
+        if (m_stc->GetReadOnly()) {
+            m_statusLabel->SetLabel(L"只读模式");
+            return;
+        }
+        wxString findText = m_findCtrl->GetValue();
+        if (findText.IsEmpty()) return;
+        wxString replaceText = m_replaceCtrl->GetValue();
+
+        const long findByteLen = static_cast<long>(findText.ToUTF8().length());
+        const long replaceByteLen = static_cast<long>(replaceText.ToUTF8().length());
+        if (findByteLen <= 0) return;
+
+        const int flags = GetSearchFlags();
+        int replaceCount = 0;
+
+        m_stc->BeginUndoAction();
+        long currentPos = 0;
+        long endPos = m_stc->GetLength();
+
+        while (currentPos < endPos) {
+            long foundPos = m_stc->FindText(currentPos, endPos, findText, flags);
+            if (foundPos == -1) break;
+
+            m_stc->SetSelection(foundPos, foundPos + findByteLen);
+            m_stc->ReplaceSelection(replaceText);
+
+            // 严格使用 UTF-8 字节长度推进游标，彻底杜绝中文替换死循环
+            currentPos = foundPos + replaceByteLen;
+            endPos = m_stc->GetLength();
+            ++replaceCount;
+        }
+        m_stc->EndUndoAction();
+
+        m_statusLabel->SetLabel(wxString::Format(L"已替换 %d 处", replaceCount));
+    }
+
+    MySTC* m_stc = nullptr;
+    wxStaticText* m_findLabel = nullptr;
+    wxStaticText* m_replaceLabel = nullptr;
+    wxStaticText* m_statusLabel = nullptr;
+    wxTextCtrl* m_findCtrl = nullptr;
+    wxTextCtrl* m_replaceCtrl = nullptr;
+    wxButton* m_prevBtn = nullptr;
+    wxButton* m_nextBtn = nullptr;
+    wxButton* m_replaceBtn = nullptr;
+    wxButton* m_replaceAllBtn = nullptr;
+    wxButton* m_closeBtn = nullptr;
+    wxCheckBox* m_caseCheck = nullptr;
+    wxCheckBox* m_wholeCheck = nullptr;
+};
+
 
 void MainFrame::OnClipboardUpdate() {
     if (m_simplebook->GetSelection() != ID_ScintillaPage)return;
@@ -61,6 +380,7 @@ void MainFrame::CreatMenuBar() {
     wxMenu* fileMenu = new wxMenu;
     fileMenu->Append(MENU_NEW_FOLDER, L"新建文件夹(&F)\tCtrl-Shift-N");
     fileMenu->Append(MENU_NEW_NOTE, L"新建笔记(&N)\tCtrl-N");
+    fileMenu->Append(MENU_SAVE_NOTE, L"保存(&S)\tCtrl-S");
     fileMenu->AppendSeparator();
     fileMenu->Append(MENU_RENAME_ITEM, L"重命名(&R)\tF2");
     // fileMenu->Append(MENU_PROPERTIES, L"属性\tAlt-Enter");
@@ -70,7 +390,7 @@ void MainFrame::CreatMenuBar() {
     fileMenu->Append(MENU_IMPORT_FOLDER, L"导入文件夹(&I)...");
     fileMenu->Append(MENU_IMPORT_NOTE, L"导入笔记(&M)...");
     fileMenu->AppendSeparator();
-    fileMenu->Append(ID_Restart, L"重启(&S)");
+    fileMenu->Append(ID_Restart, L"重启(&T)");
     fileMenu->Append(ID_Quit, L"退出(&X)\tAlt-F4");
 
     // 编辑菜单
@@ -472,8 +792,6 @@ MainFrame::~MainFrame() {
     delete m_trayIcon;
     delete m_ClipboardBlackList;
     delete m_stylePopup;
-    delete m_findSqlData;
-    delete m_findReplaceData;
 }
 
 // 初始化UI元素
@@ -490,10 +808,18 @@ void MainFrame::InitUI() {
     m_tree->InitFunctions();
     // 右侧：Simplebook
     m_simplebook = new wxSimplebook(m_splitter, ID_Notebook);
-    m_scintilla = new MySTC(m_simplebook, this, ID_Scintilla);
+    m_editorPage = new wxPanel(m_simplebook, wxID_ANY);
+    m_scintilla = new MySTC(m_editorPage, this, ID_Scintilla);
+    m_findBar = new FindReplaceBar(m_editorPage, m_scintilla);
+    m_findBar->Hide();
+    wxBoxSizer* editorSizer = new wxBoxSizer(wxVERTICAL);
+    editorSizer->Add(m_findBar, 0, wxEXPAND);
+    editorSizer->Add(m_scintilla, 1, wxEXPAND);
+    m_editorPage->SetSizer(editorSizer);
+
     m_cardViewPanel = new MyCardViewPanel(m_simplebook, ID_CardViewPanel);
     m_simplebook->AddPage(m_cardViewPanel, L"列表视图");
-    m_simplebook->AddPage(m_scintilla, L"笔记编辑");
+    m_simplebook->AddPage(m_editorPage, L"笔记编辑");
 
     // 设置拆分窗口的左右视图
     int width_splitter = config->ReadLong("MainWindow/Width_Splitter", 400);
@@ -536,16 +862,13 @@ void MainFrame::InitBind() {
     Bind(wxEVT_ACTIVATE, &MainFrame::OnActivate, this);
     Bind(wxEVT_TIMER, &MainFrame::OnAutoSaveTimer, this, ID_TIMER_AUTOSAVE);
     Bind(wxEVT_QUERY_END_SESSION, [this](wxCloseEvent&) {OnExit(); });
-    //搜索对话框
-    Bind(wxEVT_FIND, &MainFrame::OnFind, this);
-    Bind(wxEVT_FIND_NEXT, &MainFrame::OnFind, this);
-    Bind(wxEVT_FIND_REPLACE, &MainFrame::OnFind, this);
-    Bind(wxEVT_FIND_REPLACE_ALL, &MainFrame::OnFind, this);
-    Bind(wxEVT_FIND_CLOSE, &MainFrame::OnFind, this);
+    // 检查更新回调（只绑定一次，避免重复弹窗）
+    Bind(wxEVT_WEBREQUEST_STATE, &MainFrame::OnCheckUpdateResponse, this);
 
     //文件菜单
     Bind(wxEVT_MENU, &MyTreeCtrl::OnNewFolder, m_tree, MENU_NEW_FOLDER);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnNewNote, m_tree, MENU_NEW_NOTE);
+    Bind(wxEVT_MENU, &MainFrame::OnSaveNote, this, MENU_SAVE_NOTE);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnRenameItem, m_tree, MENU_RENAME_ITEM);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnExportItem, m_tree, MENU_EXPORT_ITEM);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnImportFolder, m_tree, MENU_IMPORT_FOLDER);
@@ -641,6 +964,10 @@ void MainFrame::InitBind() {
 
 void MainFrame::switchToCardViewPanel() {
     ResetAutoSaveSession();
+    if (m_findBar && m_findBar->IsShown()) {
+        m_findBar->Hide();
+        if (m_editorPage) m_editorPage->Layout();
+    }
     m_cardViewPanel->ClearView();
     m_simplebook->SetSelection(ID_CardViewPage);
     wxString tmp = " ";
@@ -779,22 +1106,6 @@ bool MainFrame::SaveNoteContent(int noteID) {
         success = sqlite3_step(stmt) == SQLITE_DONE;
         if (!success) {
             _wxLogError(L"无法更新样式内容: %s", sqlite3_errmsg(db));
-        }
-        sqlite3_finalize(stmt);
-    } else {
-        // 内容无改动，只更新ACCESS_TIME
-        const char* sql_update = "UPDATE NOTES SET ACCESS_TIME = CURRENT_TIMESTAMP WHERE ID = ?;";
-        if (sqlite3_prepare_v2(db, sql_update, -1, &stmt, nullptr) != SQLITE_OK) {
-            _wxLogError("SQL prepare failed: %s", sqlite3_errmsg(db));
-            sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
-            return false;
-        }
-
-        sqlite3_bind_int(stmt, 1, noteID);
-
-        success = sqlite3_step(stmt) == SQLITE_DONE;
-        if (!success) {
-            _wxLogError(L"无法更新访问时间: %s", sqlite3_errmsg(db));
         }
         sqlite3_finalize(stmt);
     }
@@ -993,127 +1304,36 @@ void MainFrame::OnToolbarStyleButtonClicked(wxCommandEvent& event) {
 }
 
 void MainFrame::OnSearchAndReplace(wxCommandEvent& event) {
-    //TODO:使用自定义的查找替换对话框
-    //正则支持、设置默认搜索字串、选择范围内搜索
-    if (!m_scintilla || m_simplebook->GetSelection() != ID_ScintillaPage) return;
+    if (!m_scintilla || !m_findBar || m_simplebook->GetSelection() != ID_ScintillaPage) return;
     wxString selectedText = m_scintilla->GetSelectedText();
-    if (!selectedText.IsEmpty()) {
-        m_findReplaceData->SetFindString(selectedText);
-    }
-    if (!m_findReplaceDlg) {
-        m_findReplaceDlg = new wxFindReplaceDialog(this, m_findReplaceData, L"查找和替换", wxFR_REPLACEDIALOG | wxFR_NOUPDOWN);
-        m_findReplaceDlg->Show();
-    } else {
-        // 如果对话框已存在，确保它在最前面
-        m_findReplaceDlg->Raise();
-    }
+    m_findBar->Open(selectedText);
 }
 
 void MainFrame::OnFindSql(wxCommandEvent& event) {
-    if (m_scintilla && m_simplebook->GetSelection() == ID_ScintillaPage && !m_scintilla->GetSelectedText().IsEmpty()) {
-        m_findSqlData->SetFindString(m_scintilla->GetSelectedText());
-    }
-    if (!m_findSqlDlg) {
-        m_findSqlDlg = new wxFindReplaceDialog(this, m_findSqlData, L"全局查找", wxFR_NOMATCHCASE | wxFR_NOWHOLEWORD | wxFR_NOUPDOWN);
-        m_findSqlDlg->Bind(wxEVT_FIND, &MyTreeCtrl::OnFindSQL, m_tree);
-        m_findSqlDlg->Bind(wxEVT_FIND_CLOSE, &MyTreeCtrl::OnFindSQL, m_tree);
-        m_findSqlDlg->Show();
-    } else {
-        m_findSqlDlg->Raise();
-        m_findSqlDlg->Show();
-    }
-}
-
-void MainFrame::OnFind(wxFindDialogEvent& event) {
-    if (!m_scintilla || m_simplebook->GetSelection() != ID_ScintillaPage) {
-        event.Skip();
-        return;
-    }
-    if (event.GetEventType() == wxEVT_FIND_CLOSE) {
-        if (m_findReplaceDlg) {
-            m_findReplaceDlg->Destroy();
-            m_findReplaceDlg = nullptr;
-        }
-        return;
-    }
-    // 获取搜索文本和选项
-    wxString findText = event.GetFindString();
-    auto findTextLen = findText.ToUTF8().length();
-    wxString replaceText = event.GetReplaceString();
-    bool caseSensitive = (event.GetFlags() & wxFR_MATCHCASE) != 0;
-    bool wholeWord = (event.GetFlags() & wxFR_WHOLEWORD) != 0;
-
-    // 设置wxSTC搜索标志
-    int flags = 0;
-    if (caseSensitive) flags |= wxSTC_FIND_MATCHCASE;
-    if (wholeWord) flags |= wxSTC_FIND_WHOLEWORD;
-
-    // --- 1. 处理“全部替换”功能 ---
-    if (event.GetEventType() == wxEVT_FIND_REPLACE_ALL) {
-        int replaceCount = 0;
-        m_scintilla->BeginUndoAction(); // 开始一次完整的撤销操作
-
-        long currentPos = 0;
-        long endPos = m_scintilla->GetLength();
-
-        while (currentPos < endPos) {
-            // 从当前位置开始查找下一个匹配项
-            long foundPos = m_scintilla->FindText(currentPos, endPos, findText, flags);
-
-            if (foundPos == -1) {
-                break; // 未找到，退出循环
-            }
-
-            // 选中并替换找到的文本
-            m_scintilla->SetSelection(foundPos, foundPos + findTextLen);
-            m_scintilla->ReplaceSelection(replaceText);
-
-            // 更新当前位置，以便从新替换的文本之后继续查找
-            currentPos = foundPos + replaceText.Length();
-            endPos = m_scintilla->GetLength(); // 长度可能已改变
-            replaceCount++;
-        }
-
-        m_scintilla->EndUndoAction(); // 结束撤销操作
-        wxMessageBox(wxString::Format(L"已替换 %d 处匹配。", replaceCount), L"全部替换", wxOK | wxICON_INFORMATION, this);
-        return;
-    }
-
-    // --- 2. 处理“查找”和“替换”功能 ---
-    long currentPos = m_scintilla->GetCurrentPos();
-    long startPos = currentPos;
-    long endPos = m_scintilla->GetLength();
-
-    if (event.GetEventType() == wxEVT_FIND_NEXT) {
-        // 从当前位置向后查找
-        startPos = m_scintilla->GetSelectionEnd();
-    } else if (event.GetEventType() == wxEVT_FIND_REPLACE) {
-        // 如果当前选中区域匹配，则先执行替换
-        if (m_scintilla->GetSelectedText() == findText) {
-            m_scintilla->ReplaceSelection(replaceText);
-            // 替换后，从新位置继续查找下一个
-            startPos = m_scintilla->GetCurrentPos();
+    wxString initialText = m_lastGlobalSearchText;
+    if (m_scintilla && m_simplebook->GetSelection() == ID_ScintillaPage) {
+        wxString sel = m_scintilla->GetSelectedText();
+        if (!sel.IsEmpty() && sel.Find('\n') == wxNOT_FOUND && sel.Find('\r') == wxNOT_FOUND) {
+            initialText = sel;
         }
     }
-
-    // 执行查找操作
-    long foundPos = m_scintilla->FindText(startPos, endPos, findText, flags);
-
-    // 如果未找到，从头开始循环查找
-    if (foundPos == -1) {
-        foundPos = m_scintilla->FindText(0, startPos, findText, flags);
-    }
-
-    if (foundPos != -1) {
-        m_scintilla->SetSelection(foundPos, foundPos + findTextLen);
-        m_scintilla->EnsureCaretVisible();
-    } else {
-        wxMessageBox(wxString::Format(L"未找到\"%s\"。", findText), L"查找失败", wxOK | wxICON_INFORMATION, this);
+    GlobalSearchDialog dlg(this, initialText);
+    if (dlg.ShowModal() == wxID_OK) {
+        wxString findText = dlg.GetSearchText();
+        if (!findText.IsEmpty()) {
+            m_lastGlobalSearchText = findText;
+            m_tree->ExecuteGlobalSearch(findText);
+        }
     }
 }
 
 void MainFrame::OnCharHook(wxKeyEvent& event) {
-    if (event.GetKeyCode() == WXK_CONTROL) {
+    int key = event.GetKeyCode();
+    if (key == WXK_ESCAPE && m_findBar && m_findBar->IsShown()) {
+        m_findBar->CloseBar();
+        return;
+    }
+    if (key == WXK_CONTROL) {
         if (m_scintilla->IsMouseInWindow()) {
             m_scintilla->SetFocus();
         }
@@ -1216,7 +1436,14 @@ void MainFrame::ApplyTheme(bool isDark) {
         m_tree->ApplyTheme(isDark);
     }
 
-    // 4. 编辑器配色与主题刷新
+    // 4. 编辑器与内嵌查找替换栏主题刷新
+    if (m_editorPage) {
+        m_editorPage->SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
+        m_editorPage->Refresh();
+    }
+    if (m_findBar) {
+        m_findBar->ApplyTheme(isDark);
+    }
     if (m_scintilla) {
         m_scintilla->ApplyTheme(isDark);
     }
@@ -1410,6 +1637,36 @@ void MainFrame::OnClose(wxCloseEvent& event) {
     }
 }
 
+void MainFrame::OnSaveNote(wxCommandEvent& WXUNUSED(event)) {
+    if (!m_simplebook || m_simplebook->GetSelection() != ID_ScintillaPage || m_currentNoteID == -1) {
+        return;
+    }
+    if (!m_scintilla || m_scintilla->GetReadOnly()) {
+        return;
+    }
+    if (m_scintilla->GetModify() || m_scintilla->m_styleModified) {
+        if (SaveNoteContent(m_currentNoteID)) {
+            SetStatusText(L"已保存", 0);
+        }
+    } else {
+        m_autoSaveTimer.Stop();
+        SetStatusText(L"当前内容已是最新", 0);
+    }
+}
+
+void MainFrame::TouchNoteAccessTime(int noteID) {
+    if (noteID <= 0) return;
+    sqlite3* db = GetMyAppInstance()->db;
+    if (!db) return;
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "UPDATE NOTES SET ACCESS_TIME = CURRENT_TIMESTAMP WHERE ID = ?;";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, noteID);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+}
+
 void MainFrame::OnShowNoteContent(wxTreeEvent& event) {
     wxString content = event.GetString();
     int i = event.GetInt();
@@ -1423,6 +1680,7 @@ void MainFrame::OnShowNoteContent(wxTreeEvent& event) {
         if (itemData && !itemData->IsFolder() && itemData->GetNoteID() != -1 &&
             (type == MyTreeCtrl::FolderItemID || type == MyTreeCtrl::WebCollectionItemID)) {
             m_currentNoteID = itemData->GetNoteID();
+            TouchNoteAccessTime(m_currentNoteID);
         }
     }
     m_outlineNeedUpdate = true;
@@ -1513,55 +1771,62 @@ void MainFrame::OnCheckUpdate(wxCommandEvent& event) {
         menuBar->Enable(MENU_CHECK_UPDATE, false);
     }
     SetStatusText(L"正在检查更新...");
-    wxString url = "https://codeberg.org/api/v1/repos/ibulis/wxNotepad2/releases/latest";
+    wxString url = "https://api.github.com/repos/symudo/wxNotepad2/releases/latest";
     auto m_request = wxWebSession::GetDefault().CreateRequest(this, url);
     if (!m_request.IsOk()) {
-        wxMessageBox(L"无法初始化网络请求，请检查网络连接。", L"错误", wxOK | wxICON_ERROR);
+        wxMessageBox(L"无法初始化网络请求，请检查网络连接。", L"错误", wxOK | wxICON_ERROR, this);
         if (menuBar) menuBar->Enable(MENU_CHECK_UPDATE, true);
         SetStatusText(L"就绪");
         return;
     }
 
-    this->Bind(wxEVT_WEBREQUEST_STATE, [this, menuBar](wxWebRequestEvent& evt) {
-        if (evt.GetState() == wxWebRequest::State_Completed) {
-            std::string json_str = evt.GetResponse().AsString().ToStdString();
-            picojson::value v;
-            std::string err = picojson::parse(v, json_str);
-
-            if (err.empty() && v.is<picojson::object>()) {
-                std::string latest_tag = v.get("tag_name").get<std::string>();
-                wxString latestVersion(latest_tag);
-                wxString currentVersion = wxString::Format(L"%d.%d.%d", MAJOR_VERSION, MINOR_VERSION, RELEASE_NUMBER);
-
-                if (latestVersion != currentVersion) {
-                    if (wxMessageBox(L"发现新版本: " + latestVersion + L"\n是否打开下载页面？",
-                        L"更新提示", wxYES_NO | wxICON_INFORMATION) == wxYES) {
-                        wxLaunchDefaultBrowser("https://codeberg.org/ibulis/wxNotepad2/releases");
-                    }
-                } else {
-                    wxMessageBox(L"当前已是最新版本。", L"检查更新", wxOK | wxICON_INFORMATION);
-                }
-            } else {
-                wxMessageBox(L"解析服务器返回的数据失败。", L"错误", wxOK | wxICON_WARNING);
-            }
-        } else if (evt.GetState() == wxWebRequest::State_Failed) {
-            wxMessageBox(L"无法连接到 Codeberg 服务器：\n" + evt.GetErrorDescription(),
-                L"错误", wxOK | wxICON_ERROR);
-        }
-
-        if (evt.GetState() == wxWebRequest::State_Completed ||
-            evt.GetState() == wxWebRequest::State_Failed ||
-            evt.GetState() == wxWebRequest::State_Cancelled) {
-            if (menuBar) menuBar->Enable(MENU_CHECK_UPDATE, true);
-            SetStatusText(L"就绪");
-        }
-        });
-
+    m_request.SetHeader("User-Agent", "wxNotepad2");
+    m_request.SetHeader("Accept", "application/vnd.github+json");
     m_request.Start();
 }
 
+void MainFrame::OnCheckUpdateResponse(wxWebRequestEvent& evt) {
+    auto menuBar = GetMenuBar();
+    if (evt.GetState() == wxWebRequest::State_Completed) {
+        std::string json_str = evt.GetResponse().AsString().ToStdString();
+        picojson::value v;
+        std::string err = picojson::parse(v, json_str);
+
+        if (err.empty() && v.is<picojson::object>() &&
+            v.contains("tag_name") && v.get("tag_name").is<std::string>()) {
+            wxString latestVersion = wxString::FromUTF8(v.get("tag_name").get<std::string>());
+            wxString currentVersion = wxString::Format(L"%d.%d.%d", MAJOR_VERSION, MINOR_VERSION, RELEASE_NUMBER);
+
+            if (CompareSemVer(latestVersion, currentVersion) > 0) {
+                if (wxMessageBox(L"发现新版本: " + latestVersion + L"\n当前版本: v" + currentVersion + L"\n是否打开下载页面？",
+                    L"更新提示", wxYES_NO | wxICON_INFORMATION, this) == wxYES) {
+                    wxLaunchDefaultBrowser("https://github.com/symudo/wxNotepad2/releases");
+                }
+            } else {
+                wxMessageBox(L"当前已是最新版本 (v" + currentVersion + L")。", L"检查更新", wxOK | wxICON_INFORMATION, this);
+            }
+        } else {
+            wxMessageBox(L"解析服务器返回的数据失败。", L"错误", wxOK | wxICON_WARNING, this);
+        }
+    } else if (evt.GetState() == wxWebRequest::State_Failed) {
+        wxMessageBox(L"无法连接到 GitHub 服务器：\n" + evt.GetErrorDescription(),
+            L"错误", wxOK | wxICON_ERROR, this);
+    }
+
+    if (evt.GetState() == wxWebRequest::State_Completed ||
+        evt.GetState() == wxWebRequest::State_Failed ||
+        evt.GetState() == wxWebRequest::State_Cancelled) {
+        if (menuBar) menuBar->Enable(MENU_CHECK_UPDATE, true);
+        SetStatusText(L"就绪");
+    }
+}
+
 FontStylePanel::FontStylePanel(MainFrame* parent, wxSize size) :wxPopupTransientWindow((wxWindow*)parent), m_parent(parent), iconSize(size) {
+    bool isDark = GetMyAppInstance()->GetDarkMode();
     wxPanel* mainPanel = new wxPanel(this);
+    if (isDark) {
+        mainPanel->SetBackgroundColour(ThemeColours::DarkBgSecondary);
+    }
     wxGridSizer* sizer = new wxGridSizer(3, 4, 2, 2);
     wxConfigBase* config = wxConfigBase::Get();
     auto ToolbariconSize = config->ReadLong("Toolbar/IconSize", 32);

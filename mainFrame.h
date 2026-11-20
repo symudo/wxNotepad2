@@ -9,7 +9,6 @@
 #include "wx/splitter.h"  
 #include "wx/simplebook.h"  
 #include "MySTC.h"
-#include "wx/fdrepdlg.h"
 
 class MyTreeCtrl;
 class MyCardViewPanel;
@@ -17,6 +16,8 @@ class wxTreeEvent;
 class MyTrayIcon;
 class TagDialog;
 class FontStylePanel;
+class FindReplaceBar;
+class wxWebRequestEvent;
 //class MyStatBar;
 struct OutlineItem {
     wxString text;
@@ -45,10 +46,6 @@ public:
     MySTC* m_scintilla;
     MyCardViewPanel* m_cardViewPanel;
     MyTreeCtrl* m_tree;
-    wxFindReplaceDialog* m_findReplaceDlg = nullptr;
-    wxFindReplaceData* m_findReplaceData = new wxFindReplaceData();
-    wxFindReplaceDialog* m_findSqlDlg = nullptr;
-    wxFindReplaceData* m_findSqlData = new wxFindReplaceData();
 
     bool m_showRecent;
     bool m_showTags;
@@ -66,6 +63,7 @@ public:
         ID_Restart = wxID_HIGHEST + 1,
         MENU_NEW_FOLDER,
         MENU_NEW_NOTE,
+        MENU_SAVE_NOTE,
         MENU_DELETE_ITEM,
         MENU_IMPORT_FOLDER,
         MENU_IMPORT_NOTE,
@@ -200,6 +198,8 @@ public:
 private:
     wxSplitterWindow* m_splitter;
     wxSimplebook* m_simplebook;
+    wxPanel* m_editorPage = nullptr;
+    FindReplaceBar* m_findBar = nullptr;
     MyTrayIcon* m_trayIcon;
     wxArrayString* m_ClipboardBlackList;
     wxChoice* m_Choice = nullptr;
@@ -207,6 +207,7 @@ private:
     wxStatusBar* m_statusBar = nullptr;
     FontStylePanel* m_stylePopup = nullptr;
     std::vector<OutlineItem> m_outlineList;
+    wxString m_lastGlobalSearchText;
     int m_quickSwitchMenuIds[9] = { 0 };
     bool m_EnableClipboardToSTC = false;
     bool m_closeToTray;
@@ -236,12 +237,15 @@ private:
     void OnQuit(wxCommandEvent& event);
     void OnAbout(wxCommandEvent& event);
     void OnClose(wxCloseEvent& event);
+    void OnSaveNote(wxCommandEvent& event);
+    void TouchNoteAccessTime(int noteID);
     void OnAutoSaveTimer(wxTimerEvent& event);
     void OnActivate(wxActivateEvent& event);
     void OnShowNoteContent(wxTreeEvent& event);
     void OnEditTags(wxCommandEvent& event);
     void OnGlobalSettings(wxCommandEvent& event);
     void OnCheckUpdate(wxCommandEvent& event);
+    void OnCheckUpdateResponse(wxWebRequestEvent& evt);
 
     void OnUpdateEditorMenu(wxUpdateUIEvent& event);//编辑器菜单
     void OnUpdateQuickSwitchMenu(wxUpdateUIEvent& event);//特殊：快速切换菜单
@@ -250,7 +254,6 @@ private:
     void OnToolbarStyleButtonClicked(wxCommandEvent& event);
     void OnSearchAndReplace(wxCommandEvent& event);
     void OnFindSql(wxCommandEvent& event);
-    void OnFind(wxFindDialogEvent& event);
     void OnCharHook(wxKeyEvent& event);
     void OnFocusChoice(wxMouseEvent& event);
     void OnOutlineSelect(wxCommandEvent& event);

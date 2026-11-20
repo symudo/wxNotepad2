@@ -8,6 +8,7 @@
 #include "Helper.h"
 #include "SVG_ICON.h"
 #include <commctrl.h>
+#include <memory>
 #include <wx/weakref.h>
 
 MyTreeCtrl::MyTreeCtrl(wxWindow* parent, MainFrame* mainFrame, wxWindowID id, const wxPoint& pos, const wxSize& size, long style)
@@ -1362,65 +1363,110 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
         info = MakePath(currentItem) + GetItemText(currentItem);
 
         m_mainFrame->switchToCardViewPanel();
-        auto cardList = new std::vector<CardData>();
+        auto cardList = std::make_unique<std::vector<CardData>>();
         auto searchRootData = static_cast<MyTreeItemData*>(GetItemData(m_idToItem[SearchRootID]));
         auto findText = searchRootData->GetName();
-        //搜索也对extension条目生效
-        const char* sql =
-            "SELECT p.ID, snippet(NOTES_FTS, 0, '', '', '...', 10) AS preview, n.MODIFY_TIME " // 获取上下文与修改时间
-            "FROM NOTES_FTS "
-            "JOIN NOTES n ON NOTES_FTS.rowid = n.ID " // FTS5的rowid就是NOTES表的ID
-            "JOIN PATHS p ON n.PATH_ID = p.ID " // 路径表
-            "WHERE NOTES_FTS MATCH ? "
-            "ORDER BY p.ID"
-            ";";
-        sqlite3_stmt* stmt;
-        int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-        if (rc != SQLITE_OK){
-            _wxLogError("SQL prepare failed: %s", sqlite3_errmsg(db));
-            return;
-        }
+        std::unordered_set<int> matchedPathIds;
 
-        rc = sqlite3_bind_text(stmt, 1, findText.utf8_str(), -1, SQLITE_TRANSIENT);
-        if (rc != SQLITE_OK){
-            _wxLogError("SQL bind failed: %s", sqlite3_errmsg(db));
-            sqlite3_finalize(stmt);
-            return;
-        }
-
-        while ((rc = sqlite3_step(stmt)) == SQLITE_ROW){
-            int pathID = sqlite3_column_int(stmt, 0);
-            if (m_idToItem.count(pathID) == 0)continue;//跳过未被创建的节点
-            const unsigned char* preview = sqlite3_column_text(stmt, 1);
-            wxString context = wxString::FromUTF8(reinterpret_cast<const char*>(preview));
-
-            //在这里构造结果树
-            auto name = m_idToData[pathID]->GetName();
-            auto notePath = MakePath(m_idToItem[pathID]);
-            auto noteID = m_idToData[pathID]->GetNoteID();
-            wxString noteTimestamp;
-            const char* timeText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-            if (timeText) {
-                wxDateTime dt;
-                if (dt.ParseDateTime(wxString::FromUTF8(timeText))) {
-                    dt.MakeFromTimezone(wxDateTime::UTC);
-                    noteTimestamp = dt.Format("%Y-%m-%d %H:%M:%S");
-                }
+        auto formatUtcToLocal = [](const char* timeText) -> wxString {
+            if (!timeText) return wxEmptyString;
+            wxDateTime dt;
+            if (dt.ParseDateTime(wxString::FromUTF8(timeText))) {
+                dt.MakeFromTimezone(wxDateTime::UTC);
+                return dt.Format("%Y-%m-%d %H:%M:%S");
             }
-            CardData cardData{ 1,name,notePath ,L"修改时间：" + noteTimestamp ,context ,pathID,m_idToItem[pathID],noteID };
-            cardList->push_back(std::move(cardData));
-        }
-        if (rc != SQLITE_DONE){
-            _wxLogError("SQL step failed: %s", sqlite3_errmsg(db));
-            sqlite3_finalize(stmt);
-            return;
-        }
-        sqlite3_finalize(stmt);
+            return wxEmptyString;
+        };
 
-        evt.SetClientData(cardList);
+        // 1. FTS5 正文全文搜索（经安全转义，避免特殊字符触发语法报错）
+        wxString ftsQuery = BuildFts5Query(findText);
+        if (!ftsQuery.IsEmpty()) {
+            const char* sql =
+                "SELECT p.ID, snippet(NOTES_FTS, 0, '', '', '...', 10) AS preview, n.MODIFY_TIME "
+                "FROM NOTES_FTS "
+                "JOIN NOTES n ON NOTES_FTS.rowid = n.ID "
+                "JOIN PATHS p ON n.PATH_ID = p.ID "
+                "WHERE NOTES_FTS MATCH ? "
+                "ORDER BY p.ID;";
+            sqlite3_stmt* stmt = nullptr;
+            int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+            if (rc == SQLITE_OK) {
+                rc = sqlite3_bind_text(stmt, 1, ftsQuery.utf8_str(), -1, SQLITE_TRANSIENT);
+                if (rc == SQLITE_OK) {
+                    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                        int pathID = sqlite3_column_int(stmt, 0);
+                        if (m_idToItem.count(pathID) == 0) continue;
+                        matchedPathIds.insert(pathID);
+                        const unsigned char* preview = sqlite3_column_text(stmt, 1);
+                        wxString context = preview ? wxString::FromUTF8(reinterpret_cast<const char*>(preview)) : wxEmptyString;
+
+                        auto name = m_idToData[pathID]->GetName();
+                        auto notePath = MakePath(m_idToItem[pathID]);
+                        auto noteID = m_idToData[pathID]->GetNoteID();
+                        wxString noteTimestamp = formatUtcToLocal(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+                        CardData cardData{ 1, name, notePath, L"修改时间：" + noteTimestamp, context, pathID, m_idToItem[pathID], noteID };
+                        cardList->push_back(std::move(cardData));
+                    }
+                    if (rc != SQLITE_DONE) {
+                        _wxLogError("FTS search step failed: %s", sqlite3_errmsg(db));
+                    }
+                } else {
+                    _wxLogError("FTS search bind failed: %s", sqlite3_errmsg(db));
+                }
+                sqlite3_finalize(stmt);
+            } else {
+                _wxLogError("FTS search prepare failed: %s", sqlite3_errmsg(db));
+            }
+        }
+
+        // 2. 补充按笔记标题检索（去重合并，支持仅通过标题查找笔记）
+        wxString trimmedFind = findText;
+        trimmedFind.Trim(true).Trim(false);
+        if (!trimmedFind.IsEmpty()) {
+            wxString escapedLike = trimmedFind;
+            escapedLike.Replace("\\", "\\\\");
+            escapedLike.Replace("%", "\\%");
+            escapedLike.Replace("_", "\\_");
+            wxString likePattern = "%" + escapedLike + "%";
+
+            const char* sqlTitle =
+                "SELECT p.ID, n.CONTENT, n.MODIFY_TIME "
+                "FROM PATHS p "
+                "JOIN NOTES n ON n.PATH_ID = p.ID "
+                "WHERE p.NOTE_ID != -1 AND p.TRASHED = 0 AND p.NAME LIKE ? ESCAPE '\\' "
+                "ORDER BY p.ID;";
+            sqlite3_stmt* stmtTitle = nullptr;
+            if (sqlite3_prepare_v2(db, sqlTitle, -1, &stmtTitle, nullptr) == SQLITE_OK) {
+                if (sqlite3_bind_text(stmtTitle, 1, likePattern.utf8_str(), -1, SQLITE_TRANSIENT) == SQLITE_OK) {
+                    while (sqlite3_step(stmtTitle) == SQLITE_ROW) {
+                        int pathID = sqlite3_column_int(stmtTitle, 0);
+                        if (matchedPathIds.count(pathID) > 0 || m_idToItem.count(pathID) == 0) continue;
+                        matchedPathIds.insert(pathID);
+
+                        const unsigned char* contentCol = sqlite3_column_text(stmtTitle, 1);
+                        wxString contentStr = contentCol ? wxString::FromUTF8(reinterpret_cast<const char*>(contentCol)) : wxEmptyString;
+                        wxString preview = CutStringForPreview(contentStr);
+                        if (preview.IsEmpty()) {
+                            preview = L"（标题匹配）";
+                        }
+
+                        auto name = m_idToData[pathID]->GetName();
+                        auto notePath = MakePath(m_idToItem[pathID]);
+                        auto noteID = m_idToData[pathID]->GetNoteID();
+                        wxString noteTimestamp = formatUtcToLocal(reinterpret_cast<const char*>(sqlite3_column_text(stmtTitle, 2)));
+                        CardData cardData{ 1, name, notePath, L"修改时间：" + noteTimestamp, preview, pathID, m_idToItem[pathID], noteID };
+                        cardList->push_back(std::move(cardData));
+                    }
+                }
+                sqlite3_finalize(stmtTitle);
+            }
+        }
+
+        int resultCount = static_cast<int>(cardList->size());
+        evt.SetClientData(cardList.release());
         wxPostEvent(m_mainFrame->m_cardViewPanel, evt);
 
-        info += wxString::Format(L"\t\t找到%d条结果", static_cast<int>(cardList->size()));
+        info += wxString::Format(L"\t\t找到%d条结果", resultCount);
 
         m_mainFrame->SetStatusText(info, 0);
         break;
@@ -1509,27 +1555,12 @@ void MyTreeCtrl::SwitchToWebCollectionNote(){
     SelectItem(target);
 }
 
-void MyTreeCtrl::OnFindSQL(wxFindDialogEvent& event){
-    //SQL搜索功能：事件仅用于创建搜索结果节点，并储存了要搜索的字符串
-    //同时做了一些清理，如关闭对话框
-    //具体的搜索实现，在OnSelChanged中根据搜索的字符串实现
-    //这里发送一个OnSelchanged事件
-    if (event.GetEventType() == wxEVT_FIND_CLOSE){
-        if (m_mainFrame->m_findSqlDlg){
-            m_mainFrame->m_findSqlDlg->Destroy();
-            m_mainFrame->m_findSqlDlg = nullptr;
-        }
+void MyTreeCtrl::ExecuteGlobalSearch(const wxString& findText){
+    if (findText.IsEmpty()) {
         return;
     }
-    wxString findText = event.GetFindString();
-    if (findText.IsEmpty()){
-        m_mainFrame->m_findSqlDlg->Destroy();
-        m_mainFrame->m_findSqlDlg = nullptr;
-        return;
-    }
-    //创建搜索结果节点
+    //创建或更新搜索结果节点
     if (m_idToItem.count(SearchRootID) != 0){
-        //已存在，切换过去，并且重命名
         auto& SearchRootItem = m_idToItem[SearchRootID];
         SetItemText(SearchRootItem, L"搜索结果: " + findText);
         auto& SearchRootData = m_idToData[SearchRootID];
@@ -1540,9 +1571,7 @@ void MyTreeCtrl::OnFindSQL(wxFindDialogEvent& event){
         } else{
             SelectItem(SearchRootItem);
         }
-
     } else{
-        //不存在，创建
         auto SearchRootData = new MyTreeItemData(SearchRootID, HiddenRootID, findText, 5, TreeIcon::ICON_SEARCH, -1, true, false, false);
         wxTreeItemId SearchRootItem;
         if (m_idToItem.count(RecentRootID) == 1){
@@ -1556,9 +1585,6 @@ void MyTreeCtrl::OnFindSQL(wxFindDialogEvent& event){
         m_idToData[SearchRootID] = SearchRootData;
         SelectItem(SearchRootItem);
     }
-    m_mainFrame->m_findSqlDlg->Destroy();
-    m_mainFrame->m_findSqlDlg = nullptr;
-    return;
 }
 
 void MyTreeCtrl::RenameCurrentItem(wxString& newName){

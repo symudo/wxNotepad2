@@ -1,6 +1,7 @@
 #pragma once
 #include "MyTreeCtrl.h"
 #include "wx/filename.h"
+#include <array>
 #include <set>
 #include <wx/convauto.h>
 #include <wx/dir.h>
@@ -659,4 +660,110 @@ inline int NormalizeAutoSaveDelayMs(long value){
         return 60000;
     }
     return static_cast<int>(value);
+}
+
+inline void ApplyControlThemeRecursive(wxWindow* win, bool isDark) {
+    if (!win) return;
+    wxString cls = win->GetClassInfo()->GetClassName();
+    if (cls == "wxColourPickerCtrl" || cls == "wxFontPickerCtrl") {
+        return;
+    }
+
+    HWND hwnd = (HWND)win->GetHWND();
+    if (hwnd) {
+        ::SetWindowTheme(hwnd, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+    }
+
+    if (isDark) {
+        if (cls == "wxHyperlinkCtrl") {
+            win->SetBackgroundColour(ThemeColours::DarkBgBase);
+            win->SetForegroundColour(wxColour(0x4E, 0xA1, 0xFF));
+        } else if (cls == "wxButton" || cls == "wxBitmapButton") {
+            win->SetBackgroundColour(ThemeColours::DarkBgSecondary);
+            win->SetForegroundColour(ThemeColours::DarkTextPrimary);
+        } else if (cls == "wxTextCtrl" || cls == "wxChoice" || cls == "wxComboBox" || cls == "wxSpinCtrl") {
+            win->SetBackgroundColour(ThemeColours::DarkBgSecondary);
+            win->SetForegroundColour(ThemeColours::DarkTextPrimary);
+        } else {
+            win->SetBackgroundColour(ThemeColours::DarkBgBase);
+            win->SetForegroundColour(ThemeColours::DarkTextPrimary);
+        }
+    }
+
+    for (wxWindow* child : win->GetChildren()) {
+        ApplyControlThemeRecursive(child, isDark);
+    }
+}
+
+inline void ApplyDialogTheme(wxWindow* dlg, bool isDark) {
+    if (!dlg) return;
+    SetWindowDarkMode((HWND)dlg->GetHWND(), isDark);
+    if (isDark) {
+        ApplyControlThemeRecursive(dlg, true);
+        dlg->Refresh();
+    }
+}
+
+inline int CompareSemVer(const wxString& latestRaw, const wxString& currentRaw) {
+    auto parseVer = [](wxString s) -> std::array<int, 3> {
+        s.Trim(true).Trim(false);
+        if (s.StartsWith("v") || s.StartsWith("V")) {
+            s = s.Mid(1);
+        }
+        std::array<int, 3> parts = { 0, 0, 0 };
+        size_t idx = 0;
+        long val = 0;
+        bool inDigit = false;
+        for (size_t i = 0; i < s.length() && idx < 3; ++i) {
+            wxUniChar ch = s[i];
+            if (ch >= '0' && ch <= '9') {
+                val = val * 10 + (static_cast<int>(ch) - '0');
+                inDigit = true;
+            } else if (ch == '.') {
+                parts[idx++] = static_cast<int>(val);
+                val = 0;
+                inDigit = false;
+            } else {
+                break;
+            }
+        }
+        if (inDigit && idx < 3) {
+            parts[idx] = static_cast<int>(val);
+        }
+        return parts;
+    };
+
+    auto vLatest = parseVer(latestRaw);
+    auto vCurrent = parseVer(currentRaw);
+    for (size_t i = 0; i < 3; ++i) {
+        if (vLatest[i] != vCurrent[i]) {
+            return vLatest[i] > vCurrent[i] ? 1 : -1;
+        }
+    }
+    return 0;
+}
+
+inline wxString BuildFts5Query(const wxString& rawInput) {
+    wxString result;
+    wxString token;
+    auto flushToken = [&]() {
+        if (token.IsEmpty()) return;
+        token.Replace("\"", "\"\"");
+        if (!result.IsEmpty()) {
+            result += " ";
+        }
+        result += "\"" + token + "\"";
+        token.Clear();
+    };
+
+    for (size_t i = 0; i < rawInput.length(); ++i) {
+        wxUniChar ch = rawInput[i];
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+            flushToken();
+        } else {
+            token += ch;
+        }
+    }
+    flushToken();
+    return result;
 }

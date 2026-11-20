@@ -90,7 +90,7 @@ public:
     void AddWebCollection(const wxString& url, const wxString& title, const wxString& content);
     void SwitchToWebCollectionNote();
 
-    void OnFindSQL(wxFindDialogEvent& event);
+    void ExecuteGlobalSearch(const wxString& findText);
     void RenameCurrentItem(wxString& newName);
     void OnMyCardViewPanelDClick(wxCommandEvent& event){
         wxTreeItemId* itemPtr = static_cast<wxTreeItemId*>(event.GetClientData());

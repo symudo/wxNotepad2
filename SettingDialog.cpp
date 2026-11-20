@@ -317,6 +317,7 @@ bool SettingDialog::Create(wxWindow* parent, wxWindowID id, const wxString& titl
     SetMinSize(ConvertDialogToPixels(wxSize(260, 200)));
     Fit();
     LayoutDialog(wxBOTH);
+    ApplyDialogTheme(this, GetMyAppInstance()->GetDarkMode());
     //自定义部分
     //读取配置文件设置originData，并设置控件状态
     LoadConfig();

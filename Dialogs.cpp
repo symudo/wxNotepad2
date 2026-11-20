@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include <algorithm>
 #include "Dialogs.h"
 #include "mainFrame.h"
 #include "MyTreeCtrl.h"
@@ -19,19 +20,22 @@ enum {
 // 构造函数实现
 // ----------------------------------------------------------------------
 TagDialog::TagDialog(MainFrame* parent, const std::unordered_set<int>& existingTagIds, const std::unordered_map<int, wxString>& allTagsList) :
-    wxDialog(parent, wxID_ANY, L"批量编辑标签", wxDefaultPosition, wxDefaultSize,wxDEFAULT_DIALOG_STYLE ),
+    wxDialog(parent, wxID_ANY, L"批量编辑标签", wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE),
     m_allTagsList(allTagsList),
     m_initialTagIds(existingTagIds), // 保存初始ID
     m_parent(parent) {
-    SetSize(wxSize(FromDIP(600),FromDIP(450)));
+    SetSize(wxSize(FromDIP(600), FromDIP(520)));
     // 1. 创建 UI 控件和布局
     CreateControls();
 
-    // 2. 根据初始数据填充已有的标签 Token
-    PopulateExistingTags();
+    // 2. 应用对话框整体深浅色主题（在创建自定义配色 Token 前调用，避免覆盖芯片配色）
+    ApplyDialogTheme(this, GetMyAppInstance()->GetDarkMode());
 
-    // 调整大小以适应内容
-   // GetSizer()->SetSizeHints(this);
+    // 3. 填充当前笔记已有标签 Token 及全局可选标签库
+    PopulateExistingTags();
+    PopulateAvailableTags();
+
+    Layout();
     CenterOnParent();
 
     Bind(wxEVT_BUTTON, &TagDialog::OnOK, this, wxID_OK);
@@ -49,19 +53,32 @@ void TagDialog::CreateControls() {
     wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
 
     // ===================================================================
-    // 上半部分：已有的标签展示区域
+    // 上半部分：当前笔记已有标签展示区域
     // ===================================================================
 
     mainSizer->Add(new wxStaticText(this, wxID_ANY, L"已有标签 (点击 'X' 移除):"), 0, wxALL, 5);
 
-    m_tagPanel = new wxScrolledWindow(this, ID_TAG_PANEL, wxDefaultPosition, wxSize(-1, 150), wxVSCROLL | wxHSCROLL | wxBORDER_THEME);
+    m_tagPanel = new wxScrolledWindow(this, ID_TAG_PANEL, wxDefaultPosition, wxSize(-1, FromDIP(110)), wxVSCROLL | wxHSCROLL | wxBORDER_THEME);
     m_tagPanel->SetScrollRate(5, 5);
 
     // 使用 wxWrapSizer 实现自动换行的标签布局
     m_tagSizer = new wxWrapSizer(wxHORIZONTAL, wxREMOVE_LEADING_SPACES);
     m_tagPanel->SetSizer(m_tagSizer);
 
-    mainSizer->Add(m_tagPanel, 1, wxEXPAND | wxALL, 5); // 占据更多空间
+    mainSizer->Add(m_tagPanel, 1, wxEXPAND | wxALL, 5);
+
+    // ===================================================================
+    // 中间部分：标签库快速复用区域
+    // ===================================================================
+
+    mainSizer->Add(new wxStaticText(this, wxID_ANY, L"已有标签库 (点击快速添加到下方输入框):"), 0, wxLEFT | wxRIGHT | wxTOP, 5);
+
+    m_availableTagPanel = new wxScrolledWindow(this, wxID_ANY, wxDefaultPosition, wxSize(-1, FromDIP(100)), wxVSCROLL | wxHSCROLL | wxBORDER_THEME);
+    m_availableTagPanel->SetScrollRate(5, 5);
+    m_availableTagSizer = new wxWrapSizer(wxHORIZONTAL, wxREMOVE_LEADING_SPACES);
+    m_availableTagPanel->SetSizer(m_availableTagSizer);
+
+    mainSizer->Add(m_availableTagPanel, 1, wxEXPAND | wxALL, 5);
 
     // ===================================================================
     // 下半部分：新增标签输入区域
@@ -69,8 +86,8 @@ void TagDialog::CreateControls() {
 
     mainSizer->Add(new wxStaticText(this, wxID_ANY, L"输入新标签 (用空格分隔多个标签):"), 0, wxLEFT | wxRIGHT | wxTOP, 5);
 
-    m_newTagsTextCtrl = new wxTextCtrl(this, ID_TAG_TEXT_CTRL, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE);
-    mainSizer->Add(m_newTagsTextCtrl, 1, wxEXPAND | wxALL, 5); // 占据更多空间
+    m_newTagsTextCtrl = new wxTextCtrl(this, ID_TAG_TEXT_CTRL, wxEmptyString, wxDefaultPosition, wxSize(-1, FromDIP(75)), wxTE_MULTILINE);
+    mainSizer->Add(m_newTagsTextCtrl, 1, wxEXPAND | wxALL, 5);
 
     // ===================================================================
     // 底部：确定/取消按钮
@@ -93,8 +110,91 @@ void TagDialog::PopulateExistingTags() {
             AddTagToken(tagId, it->second);
         }
     }
-    //m_tagPanel->Layout();
-    //m_tagPanel->FitInside(); // 适应内容并更新滚动条
+    m_tagPanel->Layout();
+    m_tagPanel->FitInside();
+}
+
+void TagDialog::PopulateAvailableTags() {
+    if (!m_availableTagPanel || !m_availableTagSizer) return;
+    bool isDarkMode = GetMyAppInstance()->GetDarkMode();
+
+    std::vector<std::pair<int, wxString>> candidates;
+    for (const auto& [tagId, tagName] : m_allTagsList) {
+        if (m_initialTagIds.count(tagId) == 0) {
+            candidates.emplace_back(tagId, tagName);
+        }
+    }
+    std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) {
+        return a.first < b.first;
+    });
+
+    if (candidates.empty()) {
+        wxStaticText* emptyHint = new wxStaticText(m_availableTagPanel, wxID_ANY, L"暂无其他可复用标签");
+        emptyHint->SetForegroundColour(isDarkMode ? ThemeColours::DarkTextSecondary : ThemeColours::LightTextSecondary);
+        if (isDarkMode) {
+            emptyHint->SetBackgroundColour(ThemeColours::DarkBgBase);
+        }
+        m_availableTagSizer->Add(emptyHint, 0, wxALL, 6);
+    } else {
+        for (const auto& [tagId, tagName] : candidates) {
+            wxButton* chipBtn = new wxButton(m_availableTagPanel, wxID_ANY, L"+ " + tagName, wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            chipBtn->SetToolTip(L"点击快速添加标签：" + tagName);
+            if (isDarkMode) {
+                HWND hwndBtn = (HWND)chipBtn->GetHWND();
+                if (hwndBtn) ::SetWindowTheme(hwndBtn, L"DarkMode_Explorer", NULL);
+                chipBtn->SetBackgroundColour(ThemeColours::DarkBgSecondary);
+                chipBtn->SetForegroundColour(ThemeColours::DarkTextPrimary);
+            }
+            chipBtn->Bind(wxEVT_BUTTON, &TagDialog::OnQuickAddTag, this);
+            m_availableTagSizer->Add(chipBtn, 0, wxALL, 3);
+        }
+    }
+
+    m_availableTagPanel->Layout();
+    m_availableTagPanel->FitInside();
+}
+
+void TagDialog::OnQuickAddTag(wxCommandEvent& event) {
+    wxButton* btn = wxDynamicCast(event.GetEventObject(), wxButton);
+    if (!btn || !m_newTagsTextCtrl) return;
+
+    wxString label = btn->GetLabel();
+    if (label.StartsWith(L"+ ")) {
+        label = label.Mid(2);
+    }
+    if (label.IsEmpty()) return;
+
+    wxString current = m_newTagsTextCtrl->GetValue();
+    // 拆分检查是否已经存在于输入框中，避免重复添加
+    wxString token;
+    bool exists = false;
+    auto checkToken = [&]() {
+        if (!token.IsEmpty() && token == label) {
+            exists = true;
+        }
+        token.Clear();
+    };
+    for (size_t i = 0; i < current.length(); ++i) {
+        wxUniChar ch = current[i];
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+            checkToken();
+        } else {
+            token += ch;
+        }
+    }
+    checkToken();
+
+    if (!exists) {
+        wxString trimmed = current;
+        trimmed.Trim(true);
+        if (!trimmed.IsEmpty()) {
+            trimmed += L" ";
+        }
+        trimmed += label;
+        m_newTagsTextCtrl->SetValue(trimmed);
+        m_newTagsTextCtrl->SetInsertionPointEnd();
+    }
+    btn->Disable();
 }
 
 // C++ 代码
