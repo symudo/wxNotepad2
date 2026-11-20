@@ -1398,7 +1398,7 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
                         if (m_idToItem.count(pathID) == 0) continue;
                         matchedPathIds.insert(pathID);
                         const unsigned char* preview = sqlite3_column_text(stmt, 1);
-                        wxString context = preview ? wxString::FromUTF8(reinterpret_cast<const char*>(preview)) : wxEmptyString;
+                        wxString context = preview ? wxString::FromUTF8(reinterpret_cast<const char*>(preview)) : wxString();
 
                         auto name = m_idToData[pathID]->GetName();
                         auto notePath = MakePath(m_idToItem[pathID]);
@@ -1444,7 +1444,7 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
                         matchedPathIds.insert(pathID);
 
                         const unsigned char* contentCol = sqlite3_column_text(stmtTitle, 1);
-                        wxString contentStr = contentCol ? wxString::FromUTF8(reinterpret_cast<const char*>(contentCol)) : wxEmptyString;
+                        wxString contentStr = contentCol ? wxString::FromUTF8(reinterpret_cast<const char*>(contentCol)) : wxString();
                         wxString preview = CutStringForPreview(contentStr);
                         if (preview.IsEmpty()) {
                             preview = L"（标题匹配）";

@@ -78,7 +78,7 @@ public:
     }
 
     wxString GetSearchText() const {
-        return m_searchCtrl ? m_searchCtrl->GetValue().Trim(true).Trim(false) : wxEmptyString;
+        return m_searchCtrl ? m_searchCtrl->GetValue().Trim(true).Trim(false) : wxString();
     }
 
 private:
