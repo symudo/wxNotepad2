@@ -1624,6 +1624,8 @@ void MySTC::OnContextMenu(wxCommandEvent& event) {
     Menu.AppendSeparator();
     Menu.Append(MainFrame::MENU_COPY_ALL, L"复制全文\tCtrl-Shift-C");
     Menu.Append(MainFrame::MENU_REPLACE_PASTE, L"覆盖粘贴\tCtrl-Shift-V");
+    Menu.Append(MainFrame::MENU_COPY_AS_TXT, L"复制为 TXT 文件\tCtrl-Shift-T");
+    Menu.Append(MainFrame::MENU_COPY_AS_MD, L"复制为 MD 文件\tCtrl-Shift-M");
     Menu.AppendSeparator();
 
     lineMenu->Append(MainFrame::MENU_LINE_UP, L"上移当前行\tCtrl-Shift-Up");

@@ -414,6 +414,8 @@ void MainFrame::CreatMenuBar() {
     editMenu->Append(MENU_PASTE, L"粘贴(&P)\tCtrl-V");
     editMenu->Append(MENU_COPY_ALL, L"复制全文(&W)\tCtrl-Shift-C", L"一键复制当前笔记的全部内容");
     editMenu->Append(MENU_REPLACE_PASTE, L"覆盖粘贴(&O)\tCtrl-Shift-V", L"清空当前笔记并替换为剪贴板内容");
+    editMenu->Append(MENU_COPY_AS_TXT, L"复制为 TXT 文件(&K)\tCtrl-Shift-T", L"将当前笔记生成为临时 .txt 文件并复制到剪贴板");
+    editMenu->Append(MENU_COPY_AS_MD, L"复制为 MD 文件(&M)\tCtrl-Shift-M", L"将当前笔记生成为临时 .md 文件并复制到剪贴板");
     editMenu->AppendSeparator();
     wxMenu* encodingMenu = new wxMenu;
     // --- Unicode 系列 ---
@@ -807,6 +809,7 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
     SetAcceleratorTable(accel);
     m_server = new MongooseServer(this);
     ApplyTheme(GetMyAppInstance()->GetDarkMode());
+    CleanupClipboardTempFiles(3, 600);
 
     /*std::string html = "<html><body><h1>wxNotepad2 Server Running</h1></body></html>";
     if (m_server->Start(8080, html)){
@@ -925,6 +928,8 @@ void MainFrame::InitBind() {
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {if (!m_scintilla->CanPaste()) return; m_scintilla->Paste(); }, MENU_PASTE);
     Bind(wxEVT_MENU, &MainFrame::OnCopyAll, this, MENU_COPY_ALL);
     Bind(wxEVT_MENU, &MainFrame::OnReplacePaste, this, MENU_REPLACE_PASTE);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { OnCopyAsFile(L"txt"); }, MENU_COPY_AS_TXT);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { OnCopyAsFile(L"md"); }, MENU_COPY_AS_MD);
     Bind(wxEVT_MENU, &MainFrame::OnRepairEncoding, this, MENU_ENCODING_BASE, MENU_ENCODING_TOP);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {EnableClipboardListener(!m_EnableClipboardToSTC); }, MENU_APPEND_CLIPBOARD);
     Bind(wxEVT_MENU, &MainFrame::OnSearchAndReplace, this, MENU_SEARCH_REPLACE);
@@ -1749,6 +1754,45 @@ void MainFrame::OnReplacePaste(wxCommandEvent& WXUNUSED(event)) {
     m_scintilla->EndUndoAction();
     m_scintilla->SetFocus();
     SetStatusText(wxString::Format(L"已覆盖粘贴 (%zu 字符)", clipText.length()), 0);
+}
+
+void MainFrame::OnCopyAsFile(const wxString& ext) {
+    if (!m_simplebook || m_simplebook->GetSelection() != ID_ScintillaPage || !m_scintilla) {
+        return;
+    }
+    wxString text = m_scintilla->GetText();
+    if (text.IsEmpty()) {
+        SetStatusText(L"当前笔记内容为空，未生成文件", 0);
+        return;
+    }
+
+    wxString noteTitle;
+    if (m_tree) {
+        wxTreeItemId selItem = m_tree->GetSelection();
+        if (selItem.IsOk()) {
+            auto selData = static_cast<MyTreeItemData*>(m_tree->GetItemData(selItem));
+            if (selData) {
+                noteTitle = selData->GetName();
+            }
+            if (noteTitle.IsEmpty()) {
+                noteTitle = m_tree->GetItemText(selItem);
+                if (noteTitle.EndsWith(L"*")) {
+                    noteTitle.RemoveLast(1);
+                }
+            }
+        }
+    }
+
+    wxString fileName;
+    size_t byteCount = 0;
+    if (CopyTextAsFileToClipboard(m_hMainFrame, noteTitle, ext, text, fileName, byteCount)) {
+        wxString sizeStr = (byteCount >= 1024)
+            ? wxString::Format(L"%.1f KB", byteCount / 1024.0)
+            : wxString::Format(L"%zu 字节", byteCount);
+        SetStatusText(wxString::Format(L"已复制为文件：%s（%s）", fileName, sizeStr), 0);
+    } else {
+        SetStatusText(L"复制为文件失败：无法写入临时文件或访问剪贴板", 0);
+    }
 }
 
 void MainFrame::OnNewNoteFromClipboard(wxCommandEvent& WXUNUSED(event)) {

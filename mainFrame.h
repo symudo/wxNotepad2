@@ -98,6 +98,8 @@ public:
         MENU_PASTE,
         MENU_COPY_ALL,
         MENU_REPLACE_PASTE,
+        MENU_COPY_AS_TXT,
+        MENU_COPY_AS_MD,
         MENU_CHANGE_ENCODING,
         MENU_ENCODING_BASE,
         MENU_ENCODING_TOP = MENU_ENCODING_BASE + 100,
@@ -249,6 +251,7 @@ private:
     void OnSaveNote(wxCommandEvent& event);
     void OnCopyAll(wxCommandEvent& event);
     void OnReplacePaste(wxCommandEvent& event);
+    void OnCopyAsFile(const wxString& ext);
     void OnNewNoteFromClipboard(wxCommandEvent& event);
     void OnToggleTree(wxCommandEvent& event);
     void TouchNoteAccessTime(int noteID);

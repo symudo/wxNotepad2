@@ -9,8 +9,15 @@
 #include <wx/mstream.h>
 #include <wx/string.h>
 #include <Windows.h>
+#include <ole2.h>
+#include <ShlObj.h>
 #include <dwmapi.h>
 #pragma comment(lib, "dwmapi.lib")
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <vector>
 #include <wx/settings.h>
 #include <wx/fileconf.h>
 #include <wx/app.h>
@@ -850,5 +857,280 @@ inline bool ReadClipboardUnicodeText(HWND owner, wxString& outText) {
     }
     ::CloseClipboard();
     return ok;
+}
+
+inline wxString SanitizeExportFileStem(const wxString& rawName) {
+    wxString s = rawName;
+    s.Trim(true).Trim(false);
+    // 剥离末尾已有的 .txt / .md 扩展名，避免拼出 xxx.md.md
+    wxString lower = s.Lower();
+    if (lower.EndsWith(L".txt")) {
+        s = s.Left(s.length() - 4);
+    } else if (lower.EndsWith(L".md")) {
+        s = s.Left(s.length() - 3);
+    }
+
+    wxString cleaned;
+    cleaned.reserve(s.length());
+    for (size_t i = 0; i < s.length(); ++i) {
+        wxUniChar ch = s[i];
+        unsigned int code = ch.GetValue();
+        if (code < 0x20 || code == 0x7F) {
+            continue;
+        }
+        if (ch == L'\\' || ch == L'/' || ch == L':' || ch == L'*' ||
+            ch == L'?' || ch == L'"' || ch == L'<' || ch == L'>' || ch == L'|') {
+            cleaned += L'_';
+        } else {
+            cleaned += ch;
+        }
+    }
+
+    auto trimTrailingSpacesAndDots = [](wxString& str) {
+        str.Trim(false);
+        while (!str.IsEmpty()) {
+            wxUniChar last = str.Last();
+            if (last == L' ' || last == L'\t' || last == L'.') {
+                str.RemoveLast();
+            } else {
+                break;
+            }
+        }
+    };
+
+    trimTrailingSpacesAndDots(cleaned);
+    if (cleaned.length() > 80) {
+        cleaned = cleaned.Left(80);
+        trimTrailingSpacesAndDots(cleaned);
+    }
+    if (cleaned.IsEmpty()) {
+        return wxEmptyString;
+    }
+
+    wxString upper = cleaned.Upper();
+    if (upper == L"CON" || upper == L"PRN" || upper == L"AUX" || upper == L"NUL" ||
+        (upper.length() == 4 && (upper.StartsWith(L"COM") || upper.StartsWith(L"LPT")) &&
+         upper[3] >= L'1' && upper[3] <= L'9')) {
+        cleaned += L"_";
+    }
+    return cleaned;
+}
+
+inline std::filesystem::path GetClipboardTempRootDir() {
+    wchar_t tempBuf[MAX_PATH + 2] = { 0 };
+    DWORD len = ::GetTempPathW(MAX_PATH + 1, tempBuf);
+    std::filesystem::path base = (len > 0 && len <= MAX_PATH)
+        ? std::filesystem::path(tempBuf)
+        : std::filesystem::temp_directory_path();
+    return base / L"wxNotepad2_Clip";
+}
+
+inline void CleanupClipboardTempFiles(int maxKeepCount = 3, int maxAgeSeconds = 600) {
+    std::error_code ec;
+    const auto root = GetClipboardTempRootDir();
+    if (!std::filesystem::exists(root, ec)) {
+        return;
+    }
+
+    struct EntryInfo {
+        std::filesystem::path path;
+        std::filesystem::file_time_type mtime;
+    };
+    std::vector<EntryInfo> entries;
+    for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+        if (ec) break;
+        std::error_code tec;
+        auto mtime = entry.last_write_time(tec);
+        if (tec) {
+            mtime = (std::filesystem::file_time_type::min)();
+        }
+        entries.push_back({ entry.path(), mtime });
+    }
+
+    std::sort(entries.begin(), entries.end(), [](const EntryInfo& a, const EntryInfo& b) {
+        return a.mtime > b.mtime;
+    });
+
+    const auto now = std::filesystem::file_time_type::clock::now();
+    for (size_t i = 0; i < entries.size(); ++i) {
+        bool tooMany = static_cast<int>(i) >= maxKeepCount;
+        bool tooOld = false;
+        if (entries[i].mtime != (std::filesystem::file_time_type::min)()) {
+            auto ageSec = std::chrono::duration_cast<std::chrono::seconds>(now - entries[i].mtime).count();
+            tooOld = ageSec > maxAgeSeconds;
+        }
+        if (tooMany || tooOld) {
+            std::error_code rec;
+            std::filesystem::remove_all(entries[i].path, rec);
+        }
+    }
+}
+
+inline bool WriteClipboardFileDrop(HWND owner, const std::wstring& filePath) {
+    if (filePath.empty()) return false;
+    bool opened = false;
+    for (int retry = 0; retry < 5; ++retry) {
+        if (::OpenClipboard(owner)) {
+            opened = true;
+            break;
+        }
+        ::Sleep(10);
+    }
+    if (!opened) return false;
+
+    const size_t dropBytes = sizeof(DROPFILES) + (filePath.size() + 2) * sizeof(wchar_t);
+    HGLOBAL hDrop = ::GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, dropBytes);
+    if (!hDrop) {
+        ::CloseClipboard();
+        return false;
+    }
+    void* dropPtr = ::GlobalLock(hDrop);
+    if (!dropPtr) {
+        ::GlobalFree(hDrop);
+        ::CloseClipboard();
+        return false;
+    }
+    auto* df = static_cast<DROPFILES*>(dropPtr);
+    df->pFiles = sizeof(DROPFILES);
+    df->fWide = TRUE;
+    memcpy(static_cast<char*>(dropPtr) + sizeof(DROPFILES), filePath.c_str(), (filePath.size() + 1) * sizeof(wchar_t));
+    ::GlobalUnlock(hDrop);
+
+    HGLOBAL hEffect = ::GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
+    if (hEffect) {
+        DWORD* effPtr = static_cast<DWORD*>(::GlobalLock(hEffect));
+        if (effPtr) {
+            *effPtr = DROPEFFECT_COPY;
+            ::GlobalUnlock(hEffect);
+        } else {
+            ::GlobalFree(hEffect);
+            hEffect = nullptr;
+        }
+    }
+
+    ::EmptyClipboard();
+    if (!::SetClipboardData(CF_HDROP, hDrop)) {
+        ::GlobalFree(hDrop);
+        if (hEffect) ::GlobalFree(hEffect);
+        ::CloseClipboard();
+        return false;
+    }
+
+    if (hEffect) {
+        UINT fmtEffect = ::RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT);
+        if (!fmtEffect || !::SetClipboardData(fmtEffect, hEffect)) {
+            ::GlobalFree(hEffect);
+        }
+    }
+
+    ::CloseClipboard();
+    return true;
+}
+
+inline bool CopyTextAsFileToClipboard(HWND owner,
+                                      const wxString& noteTitle,
+                                      const wxString& ext,
+                                      const wxString& content,
+                                      wxString& outFileName,
+                                      size_t& outBytes) {
+    outFileName.Clear();
+    outBytes = 0;
+
+    wxString cleanExt = ext.Lower();
+    cleanExt.Trim(true).Trim(false);
+    if (cleanExt.StartsWith(L".")) {
+        cleanExt = cleanExt.Mid(1);
+    }
+    if (cleanExt.IsEmpty()) {
+        cleanExt = L"txt";
+    }
+
+    // 保留最近 2 个旧目录（本次新建后总数 <= 3），并清理 10 分钟前的历史目录
+    CleanupClipboardTempFiles(2, 600);
+
+    wxString stem = SanitizeExportFileStem(noteTitle);
+    if (stem.IsEmpty()) {
+        wxString normPreview = content;
+        normPreview.Replace(L"\r\n", L"\n");
+        normPreview.Replace(L"\r", L"\n");
+        wxArrayString lines = wxSplit(normPreview, L'\n', L'\0');
+        for (const auto& line : lines) {
+            wxString trimmed = line;
+            trimmed.Trim(true).Trim(false);
+            if (!trimmed.IsEmpty()) {
+                if (trimmed.length() > 30) {
+                    trimmed = trimmed.Left(30);
+                }
+                stem = SanitizeExportFileStem(trimmed);
+                if (!stem.IsEmpty()) break;
+            }
+        }
+    }
+    SYSTEMTIME st{};
+    ::GetLocalTime(&st);
+    if (stem.IsEmpty()) {
+        wchar_t fallbackName[64];
+        swprintf_s(fallbackName, L"note_%04u%02u%02u_%02u%02u%02u",
+                   st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+        stem = fallbackName;
+    }
+
+    outFileName = stem + L"." + cleanExt;
+
+    // 规范换行为 Windows 友好的 \r\n，输出 UTF-8（无 BOM）
+    wxString normalized = content;
+    normalized.Replace(L"\r\n", L"\n");
+    normalized.Replace(L"\r", L"\n");
+    normalized.Replace(L"\n", L"\r\n");
+    wxScopedCharBuffer utf8Buf = normalized.ToUTF8();
+    const char* rawData = utf8Buf.data();
+    const size_t rawLen = utf8Buf.length();
+
+    static std::atomic<unsigned int> s_seq{ 0 };
+    unsigned int seq = ++s_seq;
+    wchar_t subDirName[64];
+    swprintf_s(subDirName, L"%04u%02u%02u_%02u%02u%02u_%03u_%u",
+               st.wYear, st.wMonth, st.wDay,
+               st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, seq);
+
+    std::error_code ec;
+    std::filesystem::path targetDir = GetClipboardTempRootDir() / subDirName;
+    std::filesystem::create_directories(targetDir, ec);
+    if (ec) {
+        return false;
+    }
+
+    std::filesystem::path fullPath = targetDir / outFileName.ToStdWstring();
+    HANDLE hFile = ::CreateFileW(fullPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                                 nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    bool writeOk = true;
+    size_t totalWritten = 0;
+    while (totalWritten < rawLen) {
+        DWORD chunk = static_cast<DWORD>((std::min)<size_t>(rawLen - totalWritten, 1024 * 1024));
+        DWORD written = 0;
+        if (!::WriteFile(hFile, rawData + totalWritten, chunk, &written, nullptr) || written == 0) {
+            writeOk = false;
+            break;
+        }
+        totalWritten += written;
+    }
+    ::CloseHandle(hFile);
+
+    if (!writeOk) {
+        std::filesystem::remove_all(targetDir, ec);
+        return false;
+    }
+
+    if (!WriteClipboardFileDrop(owner, fullPath.wstring())) {
+        std::filesystem::remove_all(targetDir, ec);
+        return false;
+    }
+
+    outBytes = totalWritten;
+    return true;
 }
 

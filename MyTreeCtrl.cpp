@@ -1742,6 +1742,10 @@ void MyTreeCtrl::OnItemMenu(wxTreeEvent& event){
 
             menu.GetMenuItems()[menu.GetMenuItemCount() - 2]->Enable(hasAddTags);
             menu.GetMenuItems()[menu.GetMenuItemCount() - 1]->Enable(hasRemoveTags);
+
+            menu.AppendSeparator();
+            menu.Append(MainFrame::MENU_COPY_AS_TXT, L"复制为 TXT 文件");
+            menu.Append(MainFrame::MENU_COPY_AS_MD, L"复制为 MD 文件");
         } else{
             iconStyleMenu->Insert(1, MainFrame::MENU_ICON_CHANGE_STYLE_BASE + 1, L"着色文件夹");
             iconStyleMenu->Insert(2, MainFrame::MENU_ICON_CHANGE_STYLE_BASE + 2, L"√文件夹");
@@ -1826,6 +1830,10 @@ void MyTreeCtrl::OnItemMenu(wxTreeEvent& event){
 
             menu.GetMenuItems()[menu.GetMenuItemCount() - 2]->Enable(hasAddTags);
             menu.GetMenuItems()[menu.GetMenuItemCount() - 1]->Enable(hasRemoveTags);
+
+            menu.AppendSeparator();
+            menu.Append(MainFrame::MENU_COPY_AS_TXT, L"复制为 TXT 文件");
+            menu.Append(MainFrame::MENU_COPY_AS_MD, L"复制为 MD 文件");
         }
         menu.Append(MainFrame::MENU_EXPORT_ITEM, L"导出...");
         break;
