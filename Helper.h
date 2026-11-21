@@ -1017,7 +1017,7 @@ inline bool WriteClipboardFileDrop(HWND owner, const std::wstring& filePath) {
     }
 
     if (hEffect) {
-        UINT fmtEffect = ::RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT);
+        UINT fmtEffect = ::RegisterClipboardFormatW(L"Preferred DropEffect");
         if (!fmtEffect || !::SetClipboardData(fmtEffect, hEffect)) {
             ::GlobalFree(hEffect);
         }
@@ -1110,7 +1110,8 @@ inline bool CopyTextAsFileToClipboard(HWND owner,
     bool writeOk = true;
     size_t totalWritten = 0;
     while (totalWritten < rawLen) {
-        DWORD chunk = static_cast<DWORD>((std::min)<size_t>(rawLen - totalWritten, 1024 * 1024));
+        const size_t remaining = rawLen - totalWritten;
+        const DWORD chunk = static_cast<DWORD>(remaining < (1024u * 1024u) ? remaining : (1024u * 1024u));
         DWORD written = 0;
         if (!::WriteFile(hFile, rawData + totalWritten, chunk, &written, nullptr) || written == 0) {
             writeOk = false;
