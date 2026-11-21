@@ -219,7 +219,48 @@ void MyTreeCtrl::Initialization(){
         appendChildren(FolderRootID, m_idToItem[FolderRootID]);
     }
     if (m_idToItem.count(TrashRootID) && m_idToItem[TrashRootID].IsOk()) {
-        appendChildren(TrashRootID, m_idToItem[TrashRootID]);
+        bool trashHasChildren = childrenMap.count(TrashRootID) && !childrenMap[TrashRootID].empty();
+        if (trashHasChildren) {
+            bool needEagerTrash = false;
+            std::vector<int> scanStack{ TrashRootID };
+            while (!scanStack.empty()) {
+                int cur = scanStack.back();
+                scanStack.pop_back();
+                auto it = childrenMap.find(cur);
+                if (it == childrenMap.end()) continue;
+                for (const auto& rec : it->second) {
+                    if (rec.ID == focusItemId) {
+                        needEagerTrash = true;
+                    }
+                    if (rec.isFolder) {
+                        scanStack.push_back(rec.ID);
+                    }
+                }
+            }
+            if (needEagerTrash) {
+                appendChildren(TrashRootID, m_idToItem[TrashRootID]);
+                m_trashLoaded = true;
+            } else {
+                m_pendingTrashChildren.clear();
+                std::vector<int> moveStack{ TrashRootID };
+                while (!moveStack.empty()) {
+                    int cur = moveStack.back();
+                    moveStack.pop_back();
+                    auto it = childrenMap.find(cur);
+                    if (it == childrenMap.end()) continue;
+                    for (const auto& rec : it->second) {
+                        if (rec.isFolder) {
+                            moveStack.push_back(rec.ID);
+                        }
+                    }
+                    m_pendingTrashChildren[cur] = std::move(it->second);
+                }
+                m_trashLoaded = false;
+                SetItemHasChildren(m_idToItem[TrashRootID], true);
+            }
+        } else {
+            m_trashLoaded = true;
+        }
     }
     //展开指定节点
     Expand(m_idToItem[FolderRootID]);
@@ -272,6 +313,7 @@ void MyTreeCtrl::InitBind(){
     Bind(wxEVT_TREE_END_LABEL_EDIT, &MyTreeCtrl::OnEndLabelEdit, this);
     Bind(wxEVT_TREE_KEY_DOWN, &MyTreeCtrl::OnTreeKeyDown, this);
     Bind(wxEVT_TREE_ITEM_MENU, &MyTreeCtrl::OnItemMenu, this);
+    Bind(wxEVT_TREE_ITEM_EXPANDING, &MyTreeCtrl::OnItemExpanding, this);
 
     Bind(wxEVT_MENU, &MyTreeCtrl::OnHideRecent, this, MainFrame::MENU_HIDE_RECENT);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnNewTag, this, MainFrame::MENU_NEW_TAG);
@@ -1161,6 +1203,9 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
     case WebCollectionRootID:
     case WebCollectionItemID:
     {
+        if (itemType == TrashRootID) {
+            EnsureTrashLoaded();
+        }
         info = MakePath(currentItem) + GetItemText(currentItem);
         if (itemData->IsFolder()){
             m_mainFrame->SetStatusText(info, 0);
@@ -2044,7 +2089,10 @@ void MyTreeCtrl::OnEmptyRecycleBin(wxCommandEvent& event){
         m_idToItem.erase(id);
         m_idToData.erase(id);
     }
+    m_pendingTrashChildren.clear();
+    m_trashLoaded = true;
     DeleteChildren(m_idToItem[TrashRootID]);
+    SetItemHasChildren(m_idToItem[TrashRootID], false);
     wxTreeEvent evt(EVT_SHOW_NODE_CONTENT, GetId());
     evt.SetItem(currentItem);
     auto cardList = new std::vector<CardData>();
@@ -3086,7 +3134,45 @@ wxTreeItemId MyTreeCtrl::FindOrCreateWebCollectionNote(const wxTreeItemId& paren
 //}
 
 //flag:2，3是跨根，1是不跨根
+void MyTreeCtrl::EnsureTrashLoaded(){
+    if (m_trashLoaded) return;
+    m_trashLoaded = true;
+    if (!m_idToItem.count(TrashRootID) || !m_idToItem[TrashRootID].IsOk()){
+        m_pendingTrashChildren.clear();
+        return;
+    }
+    Freeze();
+    std::function<void(int, const wxTreeItemId&)> appendTrash = [&](int parentID, const wxTreeItemId& parentTreeId){
+        auto it = m_pendingTrashChildren.find(parentID);
+        if (it == m_pendingTrashChildren.end()) return;
+        for (const auto& record : it->second){
+            MyTreeItemData* data = new MyTreeItemData(record);
+            m_idToData[record.ID] = data;
+            wxTreeItemId itemId = AppendItem(parentTreeId, record.name, GetIconIndex(record.stateIcon), -1, data);
+            m_idToItem[record.ID] = itemId;
+            appendTrash(record.ID, itemId);
+        }
+    };
+    appendTrash(TrashRootID, m_idToItem[TrashRootID]);
+    if (GetChildrenCount(m_idToItem[TrashRootID], false) == 0){
+        SetItemHasChildren(m_idToItem[TrashRootID], false);
+    }
+    m_pendingTrashChildren.clear();
+    Thaw();
+}
+
+void MyTreeCtrl::OnItemExpanding(wxTreeEvent& event){
+    wxTreeItemId item = event.GetItem();
+    if (!m_trashLoaded && m_idToItem.count(TrashRootID) && item == m_idToItem[TrashRootID]){
+        EnsureTrashLoaded();
+    }
+    event.Skip();
+}
+
 wxTreeItemId MyTreeCtrl::TreeMoveItem(wxTreeItemId fromItem, wxTreeItemId toItem, int flag){
+    if (m_idToItem.count(TrashRootID) && toItem == m_idToItem[TrashRootID]){
+        EnsureTrashLoaded();
+    }
     Freeze();
     MyTreeItemData* tempData = static_cast<MyTreeItemData*>(GetItemData(fromItem));
     if (!tempData){ Thaw(); return wxTreeItemId(); }

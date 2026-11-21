@@ -632,21 +632,41 @@ void MySTC::UpdateRegionIndicators() {
 }
 
 void MySTC::GetStyleData(std::vector<UINT16>& styles) {
+    styles.clear();
     int endPos = GetTextLength();
+    if (!m_hasCustomStyle || endPos <= 0) {
+        return;
+    }
+    wxMemoryBuffer styledBuf = GetStyledText(0, endPos);
+    const size_t expectedLen = static_cast<size_t>(endPos) * 2;
     int currentStyle = 0;
-    for (int i = 0; i < endPos; i++) {
-        int nextStyle = GetStyleAt(i);
-        if (nextStyle != currentStyle) {
-            //保存样式
-            styles.push_back(CompressStyleInfo(nextStyle, i));
-            currentStyle = nextStyle;
+    if (styledBuf.GetDataLen() >= expectedLen) {
+        const unsigned char* raw = static_cast<const unsigned char*>(styledBuf.GetData());
+        for (int i = 0; i < endPos; ++i) {
+            int nextStyle = raw[static_cast<size_t>(i) * 2 + 1];
+            if (nextStyle != currentStyle) {
+                styles.push_back(CompressStyleInfo(nextStyle, i));
+                currentStyle = nextStyle;
+            }
         }
+    } else {
+        for (int i = 0; i < endPos; ++i) {
+            int nextStyle = GetStyleAt(i);
+            if (nextStyle != currentStyle) {
+                styles.push_back(CompressStyleInfo(nextStyle, i));
+                currentStyle = nextStyle;
+            }
+        }
+    }
+    if (styles.empty()) {
+        m_hasCustomStyle = false;
     }
 }
 
 void MySTC::SetStyleData(std::vector<UINT16>& styles) {
-    if (styles.size() == 0)return;
-    for (int i = 0; i < styles.size(); i++) {
+    if (styles.size() == 0) return;
+    m_hasCustomStyle = true;
+    for (size_t i = 0; i < styles.size(); i++) {
         auto [style, position] = DecompressStyleInfo(styles[i]);
         int length;
         if (i == styles.size() - 1) {
@@ -660,6 +680,9 @@ void MySTC::SetStyleData(std::vector<UINT16>& styles) {
 }
 
 void MySTC::ApplyStyle(int pos, int style, int length) {
+    if (style != 0 && length > 0) {
+        m_hasCustomStyle = true;
+    }
     StartStyling(pos);
     SetStyling(length, style);
 }
@@ -667,13 +690,26 @@ void MySTC::ApplyStyle(int pos, int style, int length) {
 void MySTC::FindOutlineRanges(std::vector<OutlineRange>& ranges) {
     ranges.clear();
     int docLength = GetTextLength();
-    if (docLength == 0)return;
+    if (!m_hasCustomStyle || docLength <= 0) return;
+    wxMemoryBuffer styledBuf = GetStyledText(0, docLength);
+    const size_t expectedLen = static_cast<size_t>(docLength) * 2;
     int currentStyle = -1;
-    for (int i = 0; i < docLength; i++) {
-        int nextStyle = GetStyleAt(i);
-        if (nextStyle != currentStyle) {
-            ranges.emplace_back(i, nextStyle);
-            currentStyle = nextStyle;
+    if (styledBuf.GetDataLen() >= expectedLen) {
+        const unsigned char* raw = static_cast<const unsigned char*>(styledBuf.GetData());
+        for (int i = 0; i < docLength; ++i) {
+            int nextStyle = raw[static_cast<size_t>(i) * 2 + 1];
+            if (nextStyle != currentStyle) {
+                ranges.emplace_back(i, nextStyle);
+                currentStyle = nextStyle;
+            }
+        }
+    } else {
+        for (int i = 0; i < docLength; ++i) {
+            int nextStyle = GetStyleAt(i);
+            if (nextStyle != currentStyle) {
+                ranges.emplace_back(i, nextStyle);
+                currentStyle = nextStyle;
+            }
         }
     }
 }
@@ -1349,6 +1385,7 @@ void MySTC::LoadContent(wxString& content, int state, std::vector<UINT16>& style
     SetInitializingState(true);
     //m_currentType = stateIcon;
     ClearAll();
+    m_hasCustomStyle = false;
     SetText(content);
     SetStyleData(styles);
     EmptyUndoBuffer();

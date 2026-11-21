@@ -1200,7 +1200,12 @@ void MainFrame::ScheduleAutoSave() {
     if (!m_simplebook || m_simplebook->GetSelection() != ID_ScintillaPage) {
         return;
     }
-    m_autoSaveTimer.Start(m_autoSaveDelayMs, wxTIMER_ONE_SHOT);
+    int effectiveDelay = m_autoSaveDelayMs;
+    // 大文档（>= 256 KB）自适应放宽防抖延迟，减少编辑中途频繁全量写盘
+    if (m_scintilla->GetTextLength() >= 256 * 1024 && effectiveDelay < 3000) {
+        effectiveDelay = 3000;
+    }
+    m_autoSaveTimer.Start(effectiveDelay, wxTIMER_ONE_SHOT);
 }
 
 void MainFrame::ResetAutoSaveSession() {

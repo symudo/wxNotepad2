@@ -128,6 +128,27 @@ bool MyApp::OnInit() {
     sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS IDX_NOTES_URL ON NOTES(URL);", 0, 0, 0);
     sqlite3_exec(db, SQLITE_CREATE_CORE_INDEXES, 0, 0, 0);
 
+    // 平滑迁移旧版全列 TRIGGER_NOTES_AU，避免仅更新 ACCESS_TIME 或 STYLEDATA 时反复重建整篇 FTS5 索引
+    {
+        sqlite3_stmt* trgStmt = nullptr;
+        bool needUpgradeTrigger = false;
+        if (sqlite3_prepare_v2(db, "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='TRIGGER_NOTES_AU';", -1, &trgStmt, nullptr) == SQLITE_OK) {
+            if (sqlite3_step(trgStmt) == SQLITE_ROW) {
+                const unsigned char* sqlTxt = sqlite3_column_text(trgStmt, 0);
+                if (sqlTxt) {
+                    std::string s(reinterpret_cast<const char*>(sqlTxt));
+                    if (s.find("OF CONTENT") == std::string::npos) {
+                        needUpgradeTrigger = true;
+                    }
+                }
+            }
+            sqlite3_finalize(trgStmt);
+        }
+        if (needUpgradeTrigger) {
+            sqlite3_exec(db, "BEGIN TRANSACTION; DROP TRIGGER IF EXISTS TRIGGER_NOTES_AU; " SQLITE_CREATE_TRIGGER_NOTES_AU " COMMIT;", nullptr, nullptr, nullptr);
+        }
+    }
+
     sqlite3_free(err_msg);
     err_msg = nullptr;
     //数据库初始化结束

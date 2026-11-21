@@ -113,6 +113,7 @@ private:
     bool m_updatingIndicators = false;
     bool m_updatingCustomFolding = false;
     bool m_isInitializing = true;
+    bool m_hasCustomStyle = false;
     int m_lastLineDigits = 0;
     wxTimer* m_updatingTimer;
     //int m_currentType = 0;

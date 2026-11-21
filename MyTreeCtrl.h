@@ -174,8 +174,13 @@ private:
     void OnSelChanged(wxTreeEvent& event);
     void OnSelChanging(wxTreeEvent& event);
     void OnItemMenu(wxTreeEvent& event);
+    void OnItemExpanding(wxTreeEvent& event);
+    void EnsureTrashLoaded();
 
     void InitTreeCtrlIcons();
+
+    std::unordered_map<int, std::vector<PathRecord>> m_pendingTrashChildren;
+    bool m_trashLoaded = true;
 
     //事件辅助，非数据库操作
     inline bool IsTreeItemDescendant(wxTreeItemId parent, wxTreeItemId child);
