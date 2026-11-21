@@ -786,3 +786,69 @@ inline wxString BuildFts5Query(const wxString& rawInput) {
     flushToken();
     return result;
 }
+
+inline bool WriteClipboardUnicodeText(HWND owner, const wxString& text) {
+    bool opened = false;
+    for (int retry = 0; retry < 5; ++retry) {
+        if (::OpenClipboard(owner)) {
+            opened = true;
+            break;
+        }
+        ::Sleep(10);
+    }
+    if (!opened) return false;
+
+    std::wstring wstr = text.ToStdWstring();
+    const size_t bytes = (wstr.size() + 1) * sizeof(wchar_t);
+    HGLOBAL hMem = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (!hMem) {
+        ::CloseClipboard();
+        return false;
+    }
+    void* ptr = ::GlobalLock(hMem);
+    if (!ptr) {
+        ::GlobalFree(hMem);
+        ::CloseClipboard();
+        return false;
+    }
+    memcpy(ptr, wstr.c_str(), bytes);
+    ::GlobalUnlock(hMem);
+
+    ::EmptyClipboard();
+    if (!::SetClipboardData(CF_UNICODETEXT, hMem)) {
+        ::GlobalFree(hMem);
+        ::CloseClipboard();
+        return false;
+    }
+    ::CloseClipboard();
+    return true;
+}
+
+inline bool ReadClipboardUnicodeText(HWND owner, wxString& outText) {
+    outText.Clear();
+    bool opened = false;
+    for (int retry = 0; retry < 5; ++retry) {
+        if (::OpenClipboard(owner)) {
+            opened = true;
+            break;
+        }
+        ::Sleep(10);
+    }
+    if (!opened) return false;
+
+    bool ok = false;
+    if (::IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+        HANDLE hData = ::GetClipboardData(CF_UNICODETEXT);
+        if (hData) {
+            const wchar_t* ptr = static_cast<const wchar_t*>(::GlobalLock(hData));
+            if (ptr) {
+                outText = wxString(ptr);
+                ok = true;
+                ::GlobalUnlock(hData);
+            }
+        }
+    }
+    ::CloseClipboard();
+    return ok;
+}
+

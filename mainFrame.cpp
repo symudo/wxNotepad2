@@ -370,14 +370,7 @@ void MainFrame::OnClipboardUpdate() {
     }
 
     wxString textContent;
-    if (wxTheClipboard->Open()) {
-        if (wxTheClipboard->IsSupported(wxDF_TEXT)) {
-            wxTextDataObject dataObject;
-            wxTheClipboard->GetData(dataObject);
-            textContent = dataObject.GetText();
-        }
-        wxTheClipboard->Close();
-    }
+    ReadClipboardUnicodeText(m_hMainFrame, textContent);
     if (textContent.IsEmpty())return;
     wxString CurrentClipboardInfo;
 
@@ -933,7 +926,7 @@ void MainFrame::InitBind() {
     Bind(wxEVT_MENU, &MainFrame::OnCopyAll, this, MENU_COPY_ALL);
     Bind(wxEVT_MENU, &MainFrame::OnReplacePaste, this, MENU_REPLACE_PASTE);
     Bind(wxEVT_MENU, &MainFrame::OnRepairEncoding, this, MENU_ENCODING_BASE, MENU_ENCODING_TOP);
-    Bind(wxEVT_MENU, [this](wxCommandEvent& event) {EnableClipboardListener(event.IsChecked()); }, MENU_APPEND_CLIPBOARD);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) {EnableClipboardListener(!m_EnableClipboardToSTC); }, MENU_APPEND_CLIPBOARD);
     Bind(wxEVT_MENU, &MainFrame::OnSearchAndReplace, this, MENU_SEARCH_REPLACE);
     Bind(wxEVT_MENU, &MainFrame::OnFindSql, this, MENU_FIND_SQL);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->RemoveEmptyLines(); }, MENU_REMOVE_EMPTYLINE);
@@ -1727,10 +1720,7 @@ void MainFrame::OnCopyAll(wxCommandEvent& WXUNUSED(event)) {
         SetStatusText(L"当前笔记为空", 0);
         return;
     }
-    if (wxTheClipboard->Open()) {
-        wxTheClipboard->SetData(new wxTextDataObject(text));
-        wxTheClipboard->Flush();
-        wxTheClipboard->Close();
+    if (WriteClipboardUnicodeText(m_hMainFrame, text)) {
         SetStatusText(wxString::Format(L"已复制全文 (%zu 字符)", text.length()), 0);
     } else {
         SetStatusText(L"无法访问剪贴板", 0);
@@ -1746,15 +1736,7 @@ void MainFrame::OnReplacePaste(wxCommandEvent& WXUNUSED(event)) {
         return;
     }
     wxString clipText;
-    if (wxTheClipboard->Open()) {
-        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT) || wxTheClipboard->IsSupported(wxDF_TEXT)) {
-            wxTextDataObject data;
-            if (wxTheClipboard->GetData(data)) {
-                clipText = data.GetText();
-            }
-        }
-        wxTheClipboard->Close();
-    }
+    ReadClipboardUnicodeText(m_hMainFrame, clipText);
     if (clipText.IsEmpty()) {
         SetStatusText(L"剪贴板中没有文本内容", 0);
         return;
@@ -1772,15 +1754,7 @@ void MainFrame::OnReplacePaste(wxCommandEvent& WXUNUSED(event)) {
 void MainFrame::OnNewNoteFromClipboard(wxCommandEvent& WXUNUSED(event)) {
     if (!m_tree) return;
     wxString clipText;
-    if (wxTheClipboard->Open()) {
-        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT) || wxTheClipboard->IsSupported(wxDF_TEXT)) {
-            wxTextDataObject data;
-            if (wxTheClipboard->GetData(data)) {
-                clipText = data.GetText();
-            }
-        }
-        wxTheClipboard->Close();
-    }
+    ReadClipboardUnicodeText(m_hMainFrame, clipText);
     if (clipText.IsEmpty()) {
         SetStatusText(L"剪贴板中没有文本内容", 0);
         return;
