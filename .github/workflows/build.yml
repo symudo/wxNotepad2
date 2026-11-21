@@ -50,17 +50,22 @@ jobs:
           }
           $cacheDir = Join-Path $env:LOCALAPPDATA "vcpkg\archives"
           New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+          $imageVer = if ($env:ImageVersion) { $env:ImageVersion } else { "unknown" }
+          $vcpkgRev = (git -C $vcpkgRoot rev-parse --short HEAD 2>$null)
+          if (-not $vcpkgRev) { $vcpkgRev = "unknown" }
+          $cacheSalt = "$imageVer-$vcpkgRev"
           echo "TOOLCHAIN_FILE=$($toolchain -replace '\\', '/')" >> $env:GITHUB_OUTPUT
           echo "CACHE_DIR=$cacheDir" >> $env:GITHUB_OUTPUT
+          echo "CACHE_SALT=$cacheSalt" >> $env:GITHUB_OUTPUT
 
       - name: Restore vcpkg binary archives
         id: vcpkg-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ steps.vcpkg.outputs.CACHE_DIR }}
-          key: ${{ runner.os }}-vcpkg-x64-static-${{ hashFiles('vcpkg.json') }}
+          key: ${{ runner.os }}-vcpkg-x64-static-${{ steps.vcpkg.outputs.CACHE_SALT }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            ${{ runner.os }}-vcpkg-x64-static-
+            ${{ runner.os }}-vcpkg-x64-static-${{ steps.vcpkg.outputs.CACHE_SALT }}-
 
       - name: Configure CMake (Static Release)
         shell: pwsh
