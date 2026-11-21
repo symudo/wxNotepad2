@@ -63,6 +63,7 @@ public:
         ID_Restart = wxID_HIGHEST + 1,
         MENU_NEW_FOLDER,
         MENU_NEW_NOTE,
+        MENU_NEW_NOTE_FROM_CLIPBOARD,
         MENU_SAVE_NOTE,
         MENU_DELETE_ITEM,
         MENU_IMPORT_FOLDER,
@@ -86,6 +87,7 @@ public:
         MENU_SHOW_RECENT,
         MENU_ALWAYS_TOP,
         MENU_NET_SERVER,
+        MENU_TOGGLE_TREE,
         //---仅笔记节点（不包括回收站的），编辑菜单和sci显示设置
         MENU_UNDO,
         MENU_REDO,
@@ -94,6 +96,8 @@ public:
         MENU_CUT,
         MENU_COPY,
         MENU_PASTE,
+        MENU_COPY_ALL,
+        MENU_REPLACE_PASTE,
         MENU_CHANGE_ENCODING,
         MENU_ENCODING_BASE,
         MENU_ENCODING_TOP = MENU_ENCODING_BASE + 100,
@@ -112,6 +116,9 @@ public:
         MENU_LINE,
         MENU_INSERT,
         MENU_REMOVE_EMPTYLINE,
+        MENU_COLLAPSE_EMPTYLINE,
+        MENU_TRIM_LINES,
+        MENU_JOIN_LINES,
         MENU_LINE_DUPLICATE,
         MENU_LINE_DELETE,
         MENU_APPEND_CLIPBOARD,
@@ -215,6 +222,8 @@ private:
     bool m_ClipboardGetMoreInfo;
     bool m_PinToTop = false;
     bool m_enableNetServer = false;
+    bool m_treeVisible = true;
+    int m_savedSplitterPos = 400;
     int m_currentNoteID = -1;
     int m_autoSaveDelayMs = 1000;
     wxTimer m_autoSaveTimer;
@@ -238,6 +247,10 @@ private:
     void OnAbout(wxCommandEvent& event);
     void OnClose(wxCloseEvent& event);
     void OnSaveNote(wxCommandEvent& event);
+    void OnCopyAll(wxCommandEvent& event);
+    void OnReplacePaste(wxCommandEvent& event);
+    void OnNewNoteFromClipboard(wxCommandEvent& event);
+    void OnToggleTree(wxCommandEvent& event);
     void TouchNoteAccessTime(int noteID);
     void OnAutoSaveTimer(wxTimerEvent& event);
     void OnActivate(wxActivateEvent& event);

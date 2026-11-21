@@ -892,6 +892,124 @@ void MySTC::RemoveEmptyLines() {
     EndUndoAction();
 }
 
+void MySTC::TrimLines() {
+    if (GetReadOnly()) return;
+    const bool hasSelection = (GetSelectionStart() != GetSelectionEnd());
+    const int startPos = hasSelection ? GetSelectionStart() : 0;
+    const int endPos = hasSelection ? GetSelectionEnd() : GetTextLength();
+    if (endPos <= startPos) return;
+
+    wxString text = GetTextRange(startPos, endPos);
+    const wxString eol = (text.Find("\r\n") != wxNOT_FOUND) ? L"\r\n" : L"\n";
+    wxString normalized = text;
+    normalized.Replace("\r\n", "\n");
+    normalized.Replace("\r", "\n");
+
+    wxArrayString lines = wxSplit(normalized, '\n', '\0');
+    wxString result;
+    result.Alloc(text.length());
+    for (size_t i = 0; i < lines.GetCount(); ++i) {
+        if (i > 0) result += eol;
+        wxString line = lines[i];
+        line.Trim(true).Trim(false);
+        result += line;
+    }
+
+    if (result == text) return;
+    BeginUndoAction();
+    SetTargetRange(startPos, endPos);
+    ReplaceTarget(result);
+    if (hasSelection) {
+        SetSelection(startPos, startPos + static_cast<int>(result.ToUTF8().length()));
+    }
+    EndUndoAction();
+}
+
+void MySTC::CollapseEmptyLines() {
+    if (GetReadOnly()) return;
+    const bool hasSelection = (GetSelectionStart() != GetSelectionEnd());
+    const int startPos = hasSelection ? GetSelectionStart() : 0;
+    const int endPos = hasSelection ? GetSelectionEnd() : GetTextLength();
+    if (endPos <= startPos) return;
+
+    wxString text = GetTextRange(startPos, endPos);
+    const wxString eol = (text.Find("\r\n") != wxNOT_FOUND) ? L"\r\n" : L"\n";
+    wxString normalized = text;
+    normalized.Replace("\r\n", "\n");
+    normalized.Replace("\r", "\n");
+
+    wxArrayString lines = wxSplit(normalized, '\n', '\0');
+    wxString result;
+    result.Alloc(text.length());
+    bool prevEmpty = false;
+    bool firstOut = true;
+    for (size_t i = 0; i < lines.GetCount(); ++i) {
+        wxString check = lines[i];
+        check.Trim(true).Trim(false);
+        const bool isEmpty = check.IsEmpty();
+        if (isEmpty && prevEmpty) {
+            continue;
+        }
+        if (!firstOut) result += eol;
+        result += isEmpty ? wxString() : lines[i];
+        firstOut = false;
+        prevEmpty = isEmpty;
+    }
+
+    if (result == text) return;
+    BeginUndoAction();
+    SetTargetRange(startPos, endPos);
+    ReplaceTarget(result);
+    if (hasSelection) {
+        SetSelection(startPos, startPos + static_cast<int>(result.ToUTF8().length()));
+    }
+    EndUndoAction();
+}
+
+void MySTC::JoinLines() {
+    if (GetReadOnly()) return;
+    const bool hasSelection = (GetSelectionStart() != GetSelectionEnd());
+    const int startPos = hasSelection ? GetSelectionStart() : 0;
+    const int endPos = hasSelection ? GetSelectionEnd() : GetTextLength();
+    if (endPos <= startPos) return;
+
+    wxString text = GetTextRange(startPos, endPos);
+    wxString normalized = text;
+    normalized.Replace("\r\n", "\n");
+    normalized.Replace("\r", "\n");
+
+    auto isAsciiWord = [](wxUniChar c) -> bool {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    };
+
+    wxArrayString lines = wxSplit(normalized, '\n', '\0');
+    wxString result;
+    result.Alloc(text.length());
+    for (size_t i = 0; i < lines.GetCount(); ++i) {
+        wxString line = lines[i];
+        line.Trim(true).Trim(false);
+        if (line.IsEmpty()) continue;
+        if (!result.IsEmpty()) {
+            wxUniChar lastCh = result.Last();
+            wxUniChar firstCh = line[0];
+            // 英文/数字衔接时自动补空格防粘连，中文直接无缝拼接
+            if (isAsciiWord(lastCh) && isAsciiWord(firstCh)) {
+                result += ' ';
+            }
+        }
+        result += line;
+    }
+
+    if (result == text) return;
+    BeginUndoAction();
+    SetTargetRange(startPos, endPos);
+    ReplaceTarget(result);
+    if (hasSelection) {
+        SetSelection(startPos, startPos + static_cast<int>(result.ToUTF8().length()));
+    }
+    EndUndoAction();
+}
+
 void MySTC::SwitchLine(bool up) {
     int totalLines = GetLineCount();
     if (totalLines < 2) {
@@ -1504,10 +1622,17 @@ void MySTC::OnContextMenu(wxCommandEvent& event) {
     Menu.Append(MainFrame::MENU_COPY, L"复制\tCtrl-C");
     Menu.Append(MainFrame::MENU_PASTE, L"粘贴\tCtrl-V");
     Menu.AppendSeparator();
+    Menu.Append(MainFrame::MENU_COPY_ALL, L"复制全文\tCtrl-Shift-C");
+    Menu.Append(MainFrame::MENU_REPLACE_PASTE, L"覆盖粘贴\tCtrl-Shift-V");
+    Menu.AppendSeparator();
 
-    lineMenu->Append(MainFrame::MENU_LINE_UP, L"上移当前行\tCtrl-Up");
-    lineMenu->Append(MainFrame::MENU_LINE_DOWN, L"下移当前行\tCtrl-Down");
+    lineMenu->Append(MainFrame::MENU_LINE_UP, L"上移当前行\tCtrl-Shift-Up");
+    lineMenu->Append(MainFrame::MENU_LINE_DOWN, L"下移当前行\tCtrl-Shift-Down");
+    lineMenu->AppendSeparator();
     lineMenu->Append(MainFrame::MENU_REMOVE_EMPTYLINE, L"删除空行");
+    lineMenu->Append(MainFrame::MENU_COLLAPSE_EMPTYLINE, L"合并连续空行");
+    lineMenu->Append(MainFrame::MENU_TRIM_LINES, L"去除每行首尾空白");
+    lineMenu->Append(MainFrame::MENU_JOIN_LINES, L"合并为单行");
 
     insertMenu->Append(MainFrame::MENU_INSERT_DATE_TIME1, L"日期和时间(短格式)");
     insertMenu->Append(MainFrame::MENU_INSERT_DATE_TIME2, L"日期和时间(长格式)");

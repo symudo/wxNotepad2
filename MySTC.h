@@ -55,6 +55,9 @@ public:
     void SetStyleData(std::vector<UINT16>& styles);
     void InitHotLinks();
     void RemoveEmptyLines();
+    void TrimLines();
+    void CollapseEmptyLines();
+    void JoinLines();
     void SwitchLine(bool);
     void InsertDateTime(int);
     void InsertSerials(wxArrayString& serials);

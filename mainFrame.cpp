@@ -395,6 +395,7 @@ void MainFrame::CreatMenuBar() {
     wxMenu* fileMenu = new wxMenu;
     fileMenu->Append(MENU_NEW_FOLDER, L"新建文件夹(&F)\tCtrl-Shift-N");
     fileMenu->Append(MENU_NEW_NOTE, L"新建笔记(&N)\tCtrl-N");
+    fileMenu->Append(MENU_NEW_NOTE_FROM_CLIPBOARD, L"从剪贴板新建笔记(&C)\tCtrl-Alt-N", L"将剪贴板中的文本直接存为新笔记");
     fileMenu->Append(MENU_SAVE_NOTE, L"保存(&S)\tCtrl-S");
     fileMenu->AppendSeparator();
     fileMenu->Append(MENU_RENAME_ITEM, L"重命名(&R)\tF2");
@@ -418,6 +419,8 @@ void MainFrame::CreatMenuBar() {
     editMenu->Append(MENU_CUT, L"剪切(&T)\tCtrl-X");
     editMenu->Append(MENU_COPY, L"复制(&C)\tCtrl-C");
     editMenu->Append(MENU_PASTE, L"粘贴(&P)\tCtrl-V");
+    editMenu->Append(MENU_COPY_ALL, L"复制全文(&W)\tCtrl-Shift-C", L"一键复制当前笔记的全部内容");
+    editMenu->Append(MENU_REPLACE_PASTE, L"覆盖粘贴(&O)\tCtrl-Shift-V", L"清空当前笔记并替换为剪贴板内容");
     editMenu->AppendSeparator();
     wxMenu* encodingMenu = new wxMenu;
     // --- Unicode 系列 ---
@@ -470,7 +473,12 @@ void MainFrame::CreatMenuBar() {
     wxMenu* lineMenu = new wxMenu;
     lineMenu->Append(MENU_LINE_UP, L"上移当前行(&M)\tCtrl-Shift-Up");
     lineMenu->Append(MENU_LINE_DOWN, L"下移当前行(&O)\tCtrl-Shift-Down");
+    lineMenu->AppendSeparator();
     lineMenu->Append(MENU_REMOVE_EMPTYLINE, L"删除空行(&D)");
+    lineMenu->Append(MENU_COLLAPSE_EMPTYLINE, L"合并连续空行(&K)");
+    lineMenu->Append(MENU_TRIM_LINES, L"去除每行首尾空白(&T)");
+    lineMenu->Append(MENU_JOIN_LINES, L"合并为单行(&J)");
+    lineMenu->AppendSeparator();
     lineMenu->Append(MENU_LINE_DUPLICATE, L"复制当前行(&C)\tCtrl-D");
     lineMenu->Append(MENU_LINE_DELETE, L"删除当前行(&E)\tCtrl-L");
     wxMenuItem* lineMneuItem = new wxMenuItem(editMenu, MENU_LINE, L"行操作(&I)", "", wxITEM_NORMAL, lineMenu);
@@ -511,9 +519,10 @@ void MainFrame::CreatMenuBar() {
     editMenu->Append(styleMenuItem);
     // 导航菜单
     wxMenu* navMenu = new wxMenu;
+    navMenu->Append(MENU_TOGGLE_TREE, L"显示目录树(&B)\tCtrl-B", L"折叠或展开左侧目录树面板", wxITEM_CHECK)->Check(m_treeVisible);
     navMenu->Append(MENU_PREV_VIEW, L"上一视图(&L)\tAlt-Left");
     navMenu->Append(MENU_EXPAND_ALL, L"展开所有(&E)\tCtrl-Shift-E");
-    navMenu->Append(MENU_COLLAPSE_ALL, L"折叠所有(&C)\tCtrl-Shift-C");
+    navMenu->Append(MENU_COLLAPSE_ALL, L"折叠所有(&C)\tCtrl-Alt-C");
     navMenu->AppendSeparator();
 
     // 快速切换功能
@@ -599,12 +608,23 @@ void MainFrame::CreateMyToolBar() {
     const char* color = GetMyAppInstance()->GetThemeColor();
     char buff[4096];
 
+    bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_toggle_sidebar, color, 73), Size_i);
+    toolBar->AddTool(MENU_TOGGLE_TREE, L"显示目录树", bundle, L"折叠/展开左侧目录树 (Ctrl+B)", wxITEM_CHECK);
+    toolBar->ToggleTool(MENU_TOGGLE_TREE, m_treeVisible);
     bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_new_note, color, 73), Size_i);
     toolBar->AddTool(MENU_NEW_NOTE, L"新建笔记", bundle, L"新建笔记");
     bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_new_folder, color, 73), Size_i);
     toolBar->AddTool(MENU_NEW_FOLDER, L"新建文件夹", bundle, L"新建文件夹");
     bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_tag, color, 73), Size_i);
     toolBar->AddTool(MENU_EDIT_TAGS, L"编辑标签...", bundle, L"查看和编辑标签");
+    toolBar->AddSeparator();
+    bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_copy_all, color, 73), Size_i);
+    toolBar->AddTool(MENU_COPY_ALL, L"复制全文", bundle, L"一键复制当前笔记全文 (Ctrl+Shift+C)");
+    bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_replace_paste, color, 73), Size_i);
+    toolBar->AddTool(MENU_REPLACE_PASTE, L"覆盖粘贴", bundle, L"清空当前笔记并替换为剪贴板内容 (Ctrl+Shift+V)");
+    bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_clipboard_watch, color, 73), Size_i);
+    toolBar->AddTool(MENU_APPEND_CLIPBOARD, L"监听剪贴板", bundle, L"自动将剪贴板新内容追加到当前笔记", wxITEM_CHECK);
+    toolBar->ToggleTool(MENU_APPEND_CLIPBOARD, m_EnableClipboardToSTC);
     toolBar->AddSeparator();
     bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_font_style, color, 73), Size_i);
     toolBar->AddTool(TOOLBAR_SET_STYLE, L"设置样式", bundle, L"设置选中文本样式");
@@ -648,6 +668,9 @@ bool MainFrame::MSWHandleMessage(WXLRESULT* result, WXUINT message, WXWPARAM wPa
             Show(true);
         }
         Raise();
+        if (m_scintilla && m_simplebook && m_simplebook->GetSelection() == ID_ScintillaPage) {
+            m_scintilla->SetFocus();
+        }
         *result = 0;
         return true;
     }
@@ -666,6 +689,9 @@ bool MainFrame::MSWHandleMessage(WXLRESULT* result, WXUINT message, WXWPARAM wPa
                 if (!IsShown()) Show(true);
                 if (IsIconized()) Iconize(false);
                 Raise();
+                if (m_scintilla && m_simplebook && m_simplebook->GetSelection() == ID_ScintillaPage) {
+                    m_scintilla->SetFocus();
+                }
             } else {
                 if (m_minimizeToTray) {
                     Hide();
@@ -838,6 +864,8 @@ void MainFrame::InitUI() {
 
     // 设置拆分窗口的左右视图
     int width_splitter = config->ReadLong("MainWindow/Width_Splitter", 400);
+    if (width_splitter < FromDIP(40)) width_splitter = FromDIP(240);
+    m_savedSplitterPos = width_splitter;
     m_splitter->SplitVertically(m_tree, m_simplebook, width_splitter);
 
     // 设置主窗口的布局为拆分窗口
@@ -883,6 +911,7 @@ void MainFrame::InitBind() {
     //文件菜单
     Bind(wxEVT_MENU, &MyTreeCtrl::OnNewFolder, m_tree, MENU_NEW_FOLDER);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnNewNote, m_tree, MENU_NEW_NOTE);
+    Bind(wxEVT_MENU, &MainFrame::OnNewNoteFromClipboard, this, MENU_NEW_NOTE_FROM_CLIPBOARD);
     Bind(wxEVT_MENU, &MainFrame::OnSaveNote, this, MENU_SAVE_NOTE);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnRenameItem, m_tree, MENU_RENAME_ITEM);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnExportItem, m_tree, MENU_EXPORT_ITEM);
@@ -901,11 +930,16 @@ void MainFrame::InitBind() {
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {if (!m_scintilla->CanCut()) { m_scintilla->LineCut(); return; } m_scintilla->Cut(); }, MENU_CUT);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->CopyAllowLine(); }, MENU_COPY);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {if (!m_scintilla->CanPaste()) return; m_scintilla->Paste(); }, MENU_PASTE);
+    Bind(wxEVT_MENU, &MainFrame::OnCopyAll, this, MENU_COPY_ALL);
+    Bind(wxEVT_MENU, &MainFrame::OnReplacePaste, this, MENU_REPLACE_PASTE);
     Bind(wxEVT_MENU, &MainFrame::OnRepairEncoding, this, MENU_ENCODING_BASE, MENU_ENCODING_TOP);
     Bind(wxEVT_MENU, [this](wxCommandEvent& event) {EnableClipboardListener(event.IsChecked()); }, MENU_APPEND_CLIPBOARD);
     Bind(wxEVT_MENU, &MainFrame::OnSearchAndReplace, this, MENU_SEARCH_REPLACE);
     Bind(wxEVT_MENU, &MainFrame::OnFindSql, this, MENU_FIND_SQL);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->RemoveEmptyLines(); }, MENU_REMOVE_EMPTYLINE);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->CollapseEmptyLines(); }, MENU_COLLAPSE_EMPTYLINE);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->TrimLines(); }, MENU_TRIM_LINES);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->JoinLines(); }, MENU_JOIN_LINES);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->SwitchLine(true); }, MENU_LINE_UP);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->SwitchLine(false); }, MENU_LINE_DOWN);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->LineDuplicate(); }, MENU_LINE_DUPLICATE);
@@ -930,6 +964,7 @@ void MainFrame::InitBind() {
     Bind(wxEVT_MENU, [this](wxCommandEvent& event) {m_scintilla->SetStyleForSelected(event); }, MENU_SET_STYLE_DEFAULT, MENU_SET_STYLE_LEVEL2);
     Bind(wxEVT_MENU, &MainFrame::OnEditTags, this, MENU_EDIT_TAGS);
     //导航菜单
+    Bind(wxEVT_MENU, &MainFrame::OnToggleTree, this, MENU_TOGGLE_TREE);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {if (m_tree->m_prev)m_tree->SelectItem(m_tree->m_prev); }, MENU_PREV_VIEW);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_tree->ExpandAll(); }, MENU_EXPAND_ALL);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_tree->CollapseAll(); }, MENU_COLLAPSE_ALL);
@@ -961,7 +996,7 @@ void MainFrame::InitBind() {
     Bind(wxEVT_UPDATE_UI, &MainFrame::OnUpdateQuickSwitchMenu, this, MENU_QUICK_SWITCH_BASE, MENU_ASSIGN_HOTKEY_BASE + 50);
     Bind(wxEVT_UPDATE_UI, &MainFrame::OnUpdateEditorMenu, this, MENU_UNDO, MENU_SET_STYLE_LEVEL2);//仅笔记节点（不包括回收站的），编辑菜单和sci显示设置
     Bind(wxEVT_UPDATE_UI, &MainFrame::OnUpdateItemMenu, this, MENU_RENAME_ITEM, MENU_EXPORT_ITEM);//笔记和文件夹（不包括回收站的）
-    Bind(wxEVT_UPDATE_UI, &MainFrame::OnUpdateBoolMenu, this, MENU_SHOW_TAGS, MENU_NET_SERVER);
+    Bind(wxEVT_UPDATE_UI, &MainFrame::OnUpdateBoolMenu, this, MENU_SHOW_TAGS, MENU_TOGGLE_TREE);
     //快捷键
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         if (m_simplebook->GetSelection() != ID_ScintillaPage) return;
@@ -1025,7 +1060,8 @@ void MainFrame::OnExit() {
     config.Write("MainWindow/Y", pos.y);
     config.Write("MainWindow/Width", size.x);
     config.Write("MainWindow/Height", size.y);
-    config.Write("MainWindow/Width_Splitter", m_splitter->GetSashPosition());
+    int splitterWidth = m_treeVisible ? m_splitter->GetSashPosition() : m_savedSplitterPos;
+    config.Write("MainWindow/Width_Splitter", splitterWidth);
     config.Write("Tree/ShowTags", m_showTags);
     config.Write("Tree/ShowRecent", m_showRecent);
     config.Write("Scintilla/AutoLineBreak", m_autoLineBreak);
@@ -1216,14 +1252,15 @@ void MainFrame::OnUpdateEditorMenu(wxUpdateUIEvent& event) {
         event.Enable(false);
         return;
     }
-    for (int id = MENU_UNDO; id <= MENU_SET_STYLE_LEVEL2; id++) {
-        if (id == MENU_UNDO) {
-            event.Enable(m_scintilla->CanUndo());
-            continue;
-        } else if (id == MENU_REDO) {
-            event.Enable(m_scintilla->CanRedo());
-            continue;
-        }
+    int id = event.GetId();
+    if (id == MENU_UNDO) {
+        event.Enable(m_scintilla->CanUndo());
+    } else if (id == MENU_REDO) {
+        event.Enable(m_scintilla->CanRedo());
+    } else if (id == MENU_APPEND_CLIPBOARD) {
+        event.Enable(true);
+        event.Check(m_EnableClipboardToSTC);
+    } else {
         event.Enable(true);
     }
 }
@@ -1290,6 +1327,9 @@ void MainFrame::OnUpdateBoolMenu(wxUpdateUIEvent& event) {
         break;
     case MENU_NET_SERVER:
         event.Check(m_enableNetServer);
+        break;
+    case MENU_TOGGLE_TREE:
+        event.Check(m_treeVisible);
         break;
     default:
         event.Skip();
@@ -1396,9 +1436,13 @@ void MainFrame::UpdateToolBarIcons() {
     const char* color = GetMyAppInstance()->GetThemeColor();
     char buff[4096];
 
+    toolBar->SetToolNormalBitmap(MENU_TOGGLE_TREE, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_toggle_sidebar, color, 73), Size_i));
     toolBar->SetToolNormalBitmap(MENU_NEW_NOTE, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_new_note, color, 73), Size_i));
     toolBar->SetToolNormalBitmap(MENU_NEW_FOLDER, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_new_folder, color, 73), Size_i));
     toolBar->SetToolNormalBitmap(MENU_EDIT_TAGS, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_tag, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_COPY_ALL, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_copy_all, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_REPLACE_PASTE, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_replace_paste, color, 73), Size_i));
+    toolBar->SetToolNormalBitmap(MENU_APPEND_CLIPBOARD, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_clipboard_watch, color, 73), Size_i));
     toolBar->SetToolNormalBitmap(TOOLBAR_SET_STYLE, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_font_style, color, 73), Size_i));
     toolBar->SetToolNormalBitmap(MENU_UNDO, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_undo, color, 73), Size_i));
     toolBar->SetToolNormalBitmap(MENU_REDO, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_redo, color, 73), Size_i));
@@ -1605,15 +1649,20 @@ void MainFrame::EnableClipboardListener(bool enable) {
     if (enable) {
         if (::AddClipboardFormatListener(GetHWND())) {
             m_EnableClipboardToSTC = true;
+            SetStatusText(L"已开启剪贴板监听（复制文本将自动追加到当前笔记）", 0);
         } else {
             _wxLogError(L"无法开启剪贴板监听。");
         }
     } else {
         if (::RemoveClipboardFormatListener(GetHWND())) {
             m_EnableClipboardToSTC = false;
+            SetStatusText(L"已关闭剪贴板监听", 0);
         } else {
             _wxLogError(L"无法关闭剪贴板监听。");
         }
+    }
+    if (wxToolBar* tb = GetToolBar()) {
+        tb->ToggleTool(MENU_APPEND_CLIPBOARD, m_EnableClipboardToSTC);
     }
 }
 
@@ -1666,6 +1715,127 @@ void MainFrame::OnSaveNote(wxCommandEvent& WXUNUSED(event)) {
     } else {
         m_autoSaveTimer.Stop();
         SetStatusText(L"当前内容已是最新", 0);
+    }
+}
+
+void MainFrame::OnCopyAll(wxCommandEvent& WXUNUSED(event)) {
+    if (!m_simplebook || m_simplebook->GetSelection() != ID_ScintillaPage || !m_scintilla) {
+        return;
+    }
+    wxString text = m_scintilla->GetText();
+    if (text.IsEmpty()) {
+        SetStatusText(L"当前笔记为空", 0);
+        return;
+    }
+    if (wxTheClipboard->Open()) {
+        wxTheClipboard->SetData(new wxTextDataObject(text));
+        wxTheClipboard->Flush();
+        wxTheClipboard->Close();
+        SetStatusText(wxString::Format(L"已复制全文 (%zu 字符)", text.length()), 0);
+    } else {
+        SetStatusText(L"无法访问剪贴板", 0);
+    }
+}
+
+void MainFrame::OnReplacePaste(wxCommandEvent& WXUNUSED(event)) {
+    if (!m_simplebook || m_simplebook->GetSelection() != ID_ScintillaPage || !m_scintilla) {
+        return;
+    }
+    if (m_scintilla->GetReadOnly()) {
+        SetStatusText(L"当前笔记为只读，无法粘贴", 0);
+        return;
+    }
+    wxString clipText;
+    if (wxTheClipboard->Open()) {
+        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT) || wxTheClipboard->IsSupported(wxDF_TEXT)) {
+            wxTextDataObject data;
+            if (wxTheClipboard->GetData(data)) {
+                clipText = data.GetText();
+            }
+        }
+        wxTheClipboard->Close();
+    }
+    if (clipText.IsEmpty()) {
+        SetStatusText(L"剪贴板中没有文本内容", 0);
+        return;
+    }
+    m_scintilla->BeginUndoAction();
+    m_scintilla->SetTargetRange(0, m_scintilla->GetTextLength());
+    m_scintilla->ReplaceTarget(clipText);
+    m_scintilla->GotoPos(m_scintilla->GetTextLength());
+    m_scintilla->EnsureCaretVisible();
+    m_scintilla->EndUndoAction();
+    m_scintilla->SetFocus();
+    SetStatusText(wxString::Format(L"已覆盖粘贴 (%zu 字符)", clipText.length()), 0);
+}
+
+void MainFrame::OnNewNoteFromClipboard(wxCommandEvent& WXUNUSED(event)) {
+    if (!m_tree) return;
+    wxString clipText;
+    if (wxTheClipboard->Open()) {
+        if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT) || wxTheClipboard->IsSupported(wxDF_TEXT)) {
+            wxTextDataObject data;
+            if (wxTheClipboard->GetData(data)) {
+                clipText = data.GetText();
+            }
+        }
+        wxTheClipboard->Close();
+    }
+    if (clipText.IsEmpty()) {
+        SetStatusText(L"剪贴板中没有文本内容", 0);
+        return;
+    }
+
+    // 提取第一个非空行前 20 字作为默认标题
+    wxString title;
+    wxString normalized = clipText;
+    normalized.Replace("\r\n", "\n");
+    normalized.Replace("\r", "\n");
+    wxArrayString lines = wxSplit(normalized, '\n', '\0');
+    for (const auto& line : lines) {
+        wxString trimmed = line;
+        trimmed.Trim(true).Trim(false);
+        if (!trimmed.IsEmpty()) {
+            if (trimmed.length() > 20) {
+                trimmed = trimmed.Left(20);
+            }
+            title = SanitizeName(trimmed);
+            break;
+        }
+    }
+    if (title.IsEmpty()) {
+        title = L"剪贴板笔记";
+    }
+
+    if (m_tree->CreateNoteWithContent(title, clipText, false)) {
+        CallAfter([this, title]() {
+            if (m_scintilla && m_simplebook && m_simplebook->GetSelection() == ID_ScintillaPage) {
+                m_scintilla->SetFocus();
+            }
+            SetStatusText(L"已从剪贴板创建笔记：" + title, 0);
+        });
+    }
+}
+
+void MainFrame::OnToggleTree(wxCommandEvent& WXUNUSED(event)) {
+    if (!m_splitter || !m_tree || !m_simplebook) return;
+    if (m_treeVisible) {
+        int pos = m_splitter->GetSashPosition();
+        if (pos >= FromDIP(40)) {
+            m_savedSplitterPos = pos;
+        }
+        m_splitter->Unsplit(m_tree);
+        m_treeVisible = false;
+        if (m_scintilla && m_simplebook->GetSelection() == ID_ScintillaPage) {
+            m_scintilla->SetFocus();
+        }
+    } else {
+        int restorePos = (m_savedSplitterPos >= FromDIP(40)) ? m_savedSplitterPos : FromDIP(240);
+        m_splitter->SplitVertically(m_tree, m_simplebook, restorePos);
+        m_treeVisible = true;
+    }
+    if (wxToolBar* tb = GetToolBar()) {
+        tb->ToggleTool(MENU_TOGGLE_TREE, m_treeVisible);
     }
 }
 

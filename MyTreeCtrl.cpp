@@ -2173,6 +2173,10 @@ void MyTreeCtrl::OnNewFolder(wxCommandEvent& event){
 }
 
 void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
+    CreateNoteWithContent(L"新笔记", wxEmptyString, true);
+}
+
+bool MyTreeCtrl::CreateNoteWithContent(const wxString& initialTitle, const wxString& initialContent, bool scheduleRename){
     auto clickedItem = GetSelection();
     int itemType = GetTreeItemType(clickedItem);
     MyTreeItemData* clickedItemData = nullptr;
@@ -2185,7 +2189,7 @@ void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
     MyTreeItemData* noteData = nullptr;
     int order, parentID;
     sqlite3* db = GetMyAppInstance()->db;
-    wxString newNoteName = L"新笔记";
+    wxString newNoteName = initialTitle.IsEmpty() ? wxString(L"新笔记") : initialTitle;
 
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
 
@@ -2200,19 +2204,19 @@ void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
         parentID = clickedItemData->GetParentID();
     }
 
-    // 在数据库中插入新文件夹记录
+    // 在数据库中插入新笔记路径记录
     auto newItemID = AppendNewRecordToPaths(db, newNoteName, parentID, TreeIcon::ICON_NOTE, order, TreeIcon::ICON_NOTE, -1);
     if (newItemID == -1){
         sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
         _wxLogError(L"无法在数据库PATHS中创建新笔记。");
-        return;
+        return false;
     }
-    wxString noteString = wxEmptyString;
+    wxString noteString = initialContent;
     auto noteID = AppendNewRecordToNotes(db, noteString, newItemID);
     if (noteID == -1){
         sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
         _wxLogError(L"无法在数据库NOTES中创建新笔记。");
-        return;
+        return false;
     }
     // 更新PATHS表中的NOTE_ID字段
     sqlite3_stmt* stmt;
@@ -2225,7 +2229,7 @@ void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
 
     }
     sqlite3_finalize(stmt);
-    // 2. 在map和wxTreeCtrl中创建新文件夹节点
+    // 2. 在map和wxTreeCtrl中创建新笔记节点
 
     noteData = new MyTreeItemData(newItemID, parentID, newNoteName, order, TreeIcon::ICON_NOTE, noteID, false, false, false);
     if (clickedItemData->IsFolder()){
@@ -2240,13 +2244,13 @@ void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
         _wxLogError(L"无法创建树节点。");
         sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
         delete noteData;
-        return;
+        return false;
     }
 
     m_idToItem[newItemID] = noteItem;
     m_idToData[newItemID] = noteData;
 
-    // 3. 更新后续兄弟节点的NODE_ORDER（仅当新文件夹插入到中间时）
+    // 3. 更新后续兄弟节点的NODE_ORDER（仅当新笔记插入到中间时）
     if (!clickedItemData->IsFolder()){
         sqlite3_stmt* stmt = nullptr;
         const char* sql = "UPDATE PATHS SET NODE_ORDER = ? WHERE ID = ?;";
@@ -2255,7 +2259,7 @@ void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
         if (rc != SQLITE_OK){
             _wxLogError(L"SQL 语句准备失败: %s", sqlite3_errmsg(db));
             sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
-            return;
+            return false;
         }
 
         int i = order + 1;
@@ -2271,7 +2275,7 @@ void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
                 _wxLogError("SQL error updating NODE_ORDER: %s", sqlite3_errmsg(db));
                 sqlite3_finalize(stmt);
                 sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
-                return;
+                return false;
             }
             sqlite3_reset(stmt); // 重置stmt
             i++;
@@ -2283,7 +2287,10 @@ void MyTreeCtrl::OnNewNote(wxCommandEvent& event){
     if (!IsExpanded(parentItem)){ Expand(parentItem); }
     // UI操作
     SelectItem(noteItem);
-    ScheduleEditLabel(noteItem);
+    if (scheduleRename) {
+        ScheduleEditLabel(noteItem);
+    }
+    return true;
 }
 
 void MyTreeCtrl::OnNewTag(wxCommandEvent& event){

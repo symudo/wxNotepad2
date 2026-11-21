@@ -112,6 +112,7 @@ public:
     void OnRenameItem(wxCommandEvent& event);
     void OnNewFolder(wxCommandEvent& event);
     void OnNewNote(wxCommandEvent& event);
+    bool CreateNoteWithContent(const wxString& initialTitle, const wxString& initialContent, bool scheduleRename = true);
     void OnNewTag(wxCommandEvent& event);
     void OnRemoveTag(wxCommandEvent& event);
     void OnImportNote(wxCommandEvent& event);
