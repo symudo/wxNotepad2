@@ -35,10 +35,30 @@ bool MyApp::OnInit() {
     m_singleInstanceChecker = new wxSingleInstanceChecker(L"wxNotePad2");
     if (m_singleInstanceChecker->IsAnotherRunning()) {
         HWND hWnd = FindWindow(NULL, L"wxNotePad2");
+        if (hWnd == NULL) {
+            struct FindCtx {
+                DWORD selfPid;
+                HWND found;
+            } ctx{ ::GetCurrentProcessId(), NULL };
+            ::EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
+                auto* p = reinterpret_cast<FindCtx*>(lParam);
+                DWORD pid = 0;
+                ::GetWindowThreadProcessId(hwnd, &pid);
+                if (pid == p->selfPid) return TRUE;
+                wchar_t title[256] = { 0 };
+                if (::GetWindowTextW(hwnd, title, 256) > 0 && wcsncmp(title, L"wxNotePad2", 10) == 0) {
+                    p->found = hwnd;
+                    return FALSE;
+                }
+                return TRUE;
+            }, reinterpret_cast<LPARAM>(&ctx));
+            hWnd = ctx.found;
+        }
         if (hWnd != NULL) {
             ::SendMessage(hWnd, WM_RESTORE_FRAME, 0, 0);
         }
         delete m_singleInstanceChecker;
+        m_singleInstanceChecker = nullptr;
         return false;
     }
 
@@ -77,13 +97,18 @@ bool MyApp::OnInit() {
 
     int rc = sqlite3_open_v2(dbPathBuffer.data(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
     if (rc != SQLITE_OK) {
+        if (db) {
+            sqlite3_close(db);
+            db = nullptr;
+        }
         return false;
     }
     rc = sqlite3_db_config(db, SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, 1, NULL);
     if (rc != SQLITE_OK) {
         fprintf(stderr, "Failed to enable extension loading: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
-        return 1;
+        db = nullptr;
+        return false;
     }
     char* zErrMsg = 0;
     rc = register_char_tokenizer(db, &zErrMsg);
@@ -91,11 +116,13 @@ bool MyApp::OnInit() {
         fprintf(stderr, "Failed to initialize char tokenizer: %s\n", zErrMsg ? zErrMsg : sqlite3_errmsg(db));
         sqlite3_free(zErrMsg);
         sqlite3_close(db);
-        return 1;
+        db = nullptr;
+        return false;
     }
     rc = sqlite3_exec(db, "PRAGMA foreign_keys = ON;", NULL, NULL, NULL);//启用了约束和级联删除功能
     if (rc != SQLITE_OK) {
         sqlite3_close(db);
+        db = nullptr;
         return false;
     }
     // 启用 WAL 模式与内存性能优化
@@ -120,7 +147,9 @@ bool MyApp::OnInit() {
         ;
     rc = sqlite3_exec(db, sql_batch, 0, 0, &err_msg);
     if (rc != SQLITE_OK) {
+        sqlite3_free(err_msg);
         sqlite3_close(db);
+        db = nullptr;
         return false;
     }
     //临时增加字段（在后继版本中合并到sql_batch中）
@@ -128,24 +157,32 @@ bool MyApp::OnInit() {
     sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS IDX_NOTES_URL ON NOTES(URL);", 0, 0, 0);
     sqlite3_exec(db, SQLITE_CREATE_CORE_INDEXES, 0, 0, 0);
 
-    // 平滑迁移旧版全列 TRIGGER_NOTES_AU，避免仅更新 ACCESS_TIME 或 STYLEDATA 时反复重建整篇 FTS5 索引
+    // 平滑迁移旧版全列 TRIGGER_NOTES_AU 与错误删除触发器 TRIGGER_NOTES_AD
     {
         sqlite3_stmt* trgStmt = nullptr;
-        bool needUpgradeTrigger = false;
-        if (sqlite3_prepare_v2(db, "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='TRIGGER_NOTES_AU';", -1, &trgStmt, nullptr) == SQLITE_OK) {
-            if (sqlite3_step(trgStmt) == SQLITE_ROW) {
-                const unsigned char* sqlTxt = sqlite3_column_text(trgStmt, 0);
-                if (sqlTxt) {
-                    std::string s(reinterpret_cast<const char*>(sqlTxt));
-                    if (s.find("OF CONTENT") == std::string::npos) {
-                        needUpgradeTrigger = true;
-                    }
+        bool needUpgradeAu = false;
+        bool needUpgradeAd = false;
+        if (sqlite3_prepare_v2(db, "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND name IN ('TRIGGER_NOTES_AU', 'TRIGGER_NOTES_AD');", -1, &trgStmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(trgStmt) == SQLITE_ROW) {
+                const unsigned char* nameTxt = sqlite3_column_text(trgStmt, 0);
+                const unsigned char* sqlTxt = sqlite3_column_text(trgStmt, 1);
+                if (!nameTxt || !sqlTxt) continue;
+                std::string name(reinterpret_cast<const char*>(nameTxt));
+                std::string sql(reinterpret_cast<const char*>(sqlTxt));
+                if (name == "TRIGGER_NOTES_AU" && sql.find("OF CONTENT") == std::string::npos) {
+                    needUpgradeAu = true;
+                } else if (name == "TRIGGER_NOTES_AD" && sql.find("DELETE FROM NOTES_FTS") != std::string::npos) {
+                    needUpgradeAd = true;
                 }
             }
             sqlite3_finalize(trgStmt);
         }
-        if (needUpgradeTrigger) {
+        if (needUpgradeAu) {
             sqlite3_exec(db, "BEGIN TRANSACTION; DROP TRIGGER IF EXISTS TRIGGER_NOTES_AU; " SQLITE_CREATE_TRIGGER_NOTES_AU " COMMIT;", nullptr, nullptr, nullptr);
+        }
+        if (needUpgradeAd) {
+            // 修复删除触发器并重建 FTS5，彻底清除历史残留的已删除笔记幽灵索引
+            sqlite3_exec(db, "BEGIN TRANSACTION; DROP TRIGGER IF EXISTS TRIGGER_NOTES_AD; " SQLITE_CREATE_TRIGGER_NOTES_AD " INSERT INTO NOTES_FTS(NOTES_FTS) VALUES('rebuild'); COMMIT;", nullptr, nullptr, nullptr);
         }
     }
 

@@ -210,7 +210,7 @@ private:
     wxString MakePath(const wxTreeItemId& item);
     wxString MakePath(const wxTreeItemId& item, const wxTreeItemId& root);
     //获取笔记内容
-    wxString GetNoteContent(sqlite3* db, wxTreeItemId item, std::vector<UINT16>& styleData);
+    wxString GetNoteContent(sqlite3* db, wxTreeItemId item, std::vector<uint32_t>& styleData);
     wxString GetWebNoteUrl(sqlite3* db, wxTreeItemId& item);
 
     void ExportNode(const wxString& path, const wxTreeItemId& item);

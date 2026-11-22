@@ -253,15 +253,16 @@ inline wxFont ReadFontFromConfig() {
 }
 
 inline size_t ConvertBytePosToCharPos(const wxString& str_utf8, size_t byte_pos_in_str) {
-    // 将 wxString 转换为 C 风格的 UTF-8 字节数组
-    const char* p_str = str_utf8.ToUTF8();
+    // 持有 wxScopedCharBuffer 生命周期，避免临时缓冲析构导致悬垂指针 Use-After-Free
+    wxScopedCharBuffer utf8Buf = str_utf8.ToUTF8();
+    const char* p_str = utf8Buf.data();
     if (!p_str) {
         return std::string::npos;
     }
 
     size_t char_count = 0; // 字符计数器
     size_t byte_pos_current = 0; // 当前遍历到的字节位置
-    size_t byte_length = strlen(p_str);
+    size_t byte_length = utf8Buf.length();
     // 如果给定的字节位置超过了字符串长度，直接返回无效值
     if (byte_pos_in_str > byte_length) {
         return std::string::npos;
@@ -374,6 +375,9 @@ inline int utf8CharLen(const char* p, int nBytes) {
 
 //SQL返回的时间字符串转换
 inline wxString CovertToLocalTime(const char* timestamp) {
+    if (!timestamp || timestamp[0] == '\0') {
+        return wxEmptyString;
+    }
     wxString timeStr = wxString::FromUTF8(timestamp);
     wxDateTime dt;
     if (dt.ParseDateTime(timeStr)) {
@@ -610,25 +614,27 @@ inline wxString GetCurrentTimestampWithMs() {
     return wxString::FromUTF8(oss.str().c_str());
 }
 
-//样式与位置，压缩、解压
-//样式占高4bit，位置占高低位bit，共16bit
-inline UINT16 CompressStyleInfo(int style, int pos) {
-    int mappedStyle = (style == 0) ? 0 : (style - 39);
-    uint16_t highStyle = (mappedStyle & 0x0F) << 12;
-    uint16_t lowPos = pos & 0x0FFF;
+// 样式与位置压缩/解压（V2：高 4bit 样式 + 低 28bit 位置，支持最大 256MB 笔记无截断；并向后兼容旧版 16bit V1 格式）
+constexpr INT32 STYLE_BLOB_V2_MAGIC = -2;
 
+inline uint32_t CompressStyleInfo(int style, int pos) {
+    int mappedStyle = (style == 0) ? 0 : (style - 39);
+    uint32_t highStyle = (static_cast<uint32_t>(mappedStyle) & 0x0Fu) << 28;
+    uint32_t lowPos = static_cast<uint32_t>(pos < 0 ? 0 : pos) & 0x0FFFFFFFu;
     return highStyle | lowPos;
 }
-inline std::pair<int, int> DecompressStyleInfo(UINT16 compressed) {
+
+inline std::pair<int, int> DecompressStyleInfo(uint32_t compressed) {
+    int pos = static_cast<int>(compressed & 0x0FFFFFFFu);
+    int mappedStyle = static_cast<int>(compressed >> 28);
+    int actualStyle = (mappedStyle == 0) ? 0 : (mappedStyle + 39);
+    return { actualStyle, pos };
+}
+
+inline std::pair<int, int> DecompressStyleInfoV1(UINT16 compressed) {
     int pos = compressed & 0x0FFF;
     int mappedStyle = compressed >> 12;
-    int actualStyle;
-    if (mappedStyle == 0) {
-        actualStyle = 0;
-    } else {
-        actualStyle = mappedStyle + 39;
-    }
-
+    int actualStyle = (mappedStyle == 0) ? 0 : (mappedStyle + 39);
     return { actualStyle, pos };
 }
 

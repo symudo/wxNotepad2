@@ -209,8 +209,8 @@ private:
     wxSimplebook* m_simplebook;
     wxPanel* m_editorPage = nullptr;
     FindReplaceBar* m_findBar = nullptr;
-    MyTrayIcon* m_trayIcon;
-    wxArrayString* m_ClipboardBlackList;
+    MyTrayIcon* m_trayIcon = nullptr;
+    wxArrayString* m_ClipboardBlackList = nullptr;
     wxChoice* m_Choice = nullptr;
     wxStaticText* m_labelNav = nullptr;
     wxStatusBar* m_statusBar = nullptr;
@@ -246,6 +246,7 @@ private:
     void StartServer();
 
     void OnQuit(wxCommandEvent& event);
+    void PersistStateBeforeExit();
     void OnAbout(wxCommandEvent& event);
     void OnClose(wxCloseEvent& event);
     void OnSaveNote(wxCommandEvent& event);

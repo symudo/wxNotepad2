@@ -1,5 +1,7 @@
 #pragma once
 #include "pch.h"
+#include <memory>
+#include <mutex>
 #include <set>
 #define HYPLNK_REGEX_FULL  "\(?:(?:https?|ftp|file)://|www\\.|ftp\\.)(?:\\./|[^\\s/$.?#]).[^\\s]*"
 static const char* s_pUrlRegEx = HYPLNK_REGEX_FULL;
@@ -16,11 +18,17 @@ struct OutlineRange {
 class ImagePreviewPopup : public wxPopupWindow {
 public:
     ImagePreviewPopup(wxWindow* parent);
+    ~ImagePreviewPopup() override;
     void RequestImage(const wxString& filePath);
     void SetTarget(const wxString& filePath) { m_targetPath = filePath; }
     void ClearTarget() { m_targetPath = wxEmptyString; }
     int m_maxsize = 500;
 private:
+    struct AliveGuard {
+        std::mutex mtx;
+        bool alive = true;
+    };
+    std::shared_ptr<AliveGuard> m_aliveGuard = std::make_shared<AliveGuard>();
     void OnTimer(wxTimerEvent& event) { CleanCache(); };
     void OnImageLoaded(wxThreadEvent& event);
 
@@ -50,9 +58,9 @@ public:
 
     MySTC(wxWindow* parent, MainFrame* mainFrame, wxWindowID id);
     ~MySTC();
-    void LoadContent(wxString& content, int state, std::vector<UINT16>& styles);
-    void GetStyleData(std::vector<UINT16>& styles);
-    void SetStyleData(std::vector<UINT16>& styles);
+    void LoadContent(wxString& content, int state, std::vector<uint32_t>& styles);
+    void GetStyleData(std::vector<uint32_t>& styles);
+    void SetStyleData(std::vector<uint32_t>& styles);
     void InitHotLinks();
     void RemoveEmptyLines();
     void TrimLines();
@@ -114,6 +122,7 @@ private:
     bool m_updatingCustomFolding = false;
     bool m_isInitializing = true;
     bool m_hasCustomStyle = false;
+    bool m_updateUiBound = false;
     int m_lastLineDigits = 0;
     wxTimer* m_updatingTimer;
     //int m_currentType = 0;

@@ -61,9 +61,10 @@ private:
     static void Initialize(){
         if (!s_comInitialized){
             HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-            if (SUCCEEDED(hr)){
+            // S_OK / S_FALSE / RPC_E_CHANGED_MODE 均表示当前线程已有可用 COM 环境，可安全创建 DWriteFactory
+            if (SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE){
                 s_comInitialized = true;
-            } else if (hr != S_FALSE){
+            } else {
                 wxLogError(wxT("COM 初始化失败 (0x%X)。"), hr);
             }
         }
@@ -80,15 +81,12 @@ private:
         }
     }
 
-    // 静态析构函数，负责清理 COM 和 DWrite Factory
+    // 静态析构函数：仅释放 Factory，避免进程退出期在 wxWidgets OleUninitialize 之后误调 CoUninitialize
     struct Cleanup{
         ~Cleanup(){
             if (s_pDWriteFactory){
                 s_pDWriteFactory->Release();
                 s_pDWriteFactory = nullptr;
-            }
-            if (s_comInitialized){
-                CoUninitialize();
             }
         }
     };

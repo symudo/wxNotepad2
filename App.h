@@ -3,8 +3,9 @@
 #define _APP_H_
 #define MAJOR_VERSION 2
 #define MINOR_VERSION 0
-#define RELEASE_NUMBER 12
+#define RELEASE_NUMBER 13
 
+#include <mutex>
 #include <wx/snglinst.h>
 
 #define WM_RESTORE_FRAME (WM_USER + 100)
@@ -45,8 +46,14 @@ public:
     const char* GetThemeColor() const { return (const char*)themeColor; }
     bool GetPortableMode() const { return m_useExternalDB; }
     const wxString& GetPortableImageFold() const { return PortableImagesFold; }
-    const wxString& GetToken()const { return g_apiToken; }
-    void SetToken(const wxString& token) { g_apiToken = token; }
+    wxString GetToken() const {
+        std::lock_guard<std::mutex> lock(m_tokenMutex);
+        return g_apiToken;
+    }
+    void SetToken(const wxString& token) {
+        std::lock_guard<std::mutex> lock(m_tokenMutex);
+        g_apiToken = token;
+    }
     int GetPort() const { return m_port; }
     void SetPort(int port) { m_port = port; }
 
@@ -61,7 +68,8 @@ private:
     wxString ConfigFilePath; // 配置文件路径
     wxString PortableImagesFold = wxEmptyString;
     wxString g_apiToken;
-    int m_port;
+    mutable std::mutex m_tokenMutex;
+    int m_port = 8080;
     bool m_useExternalDB = false;
     ThemeMode m_themeMode = ThemeMode::System;
     bool m_DarkMode = false;

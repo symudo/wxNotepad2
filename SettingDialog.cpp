@@ -369,7 +369,7 @@ void SettingDialog::LoadConfig() {
     originData.dm_toolbarIconSize = config.ReadLong("Toolbar/IconSize", 32);
     if (originData.dm_toolbarIconSize < 16 || originData.dm_toolbarIconSize>256)originData.dm_toolbarIconSize = 32;
     originData.dm_treeIconSize = config.ReadLong("Tree/IconSize", 64);
-    if (originData.dm_treeIconSize < 16 || originData.dm_treeIconSize>256)originData.dm_toolbarIconSize = 64;
+    if (originData.dm_treeIconSize < 16 || originData.dm_treeIconSize>256)originData.dm_treeIconSize = 64;
     originData.dm_ImagePreviewMaxSize = config.ReadLong("Scintilla/ImagePreviewMaxSize", 500);
     if (originData.dm_ImagePreviewMaxSize < 50)originData.dm_ImagePreviewMaxSize = 50;
     originData.dm_RecentItemMaxValue = config.ReadLong("Tree/RecentMaxCount", 10);
@@ -529,6 +529,16 @@ void SettingDialog::GetControlState() {
 }
 
 void SettingDialog::OnOK(wxCommandEvent& event) {
+    // 主动同步带校验器的数字输入框，避免修改后直接按回车未触发 KILL_FOCUS 导致沿用旧值
+    for (wxTextCtrl* ctrl : { m_ImagePreviewMaxSize, m_RecentItemMaxValue }) {
+        if (ctrl) {
+            if (wxValidator* validator = ctrl->GetValidator()) {
+                if (validator->Validate(ctrl)) {
+                    validator->TransferFromWindow();
+                }
+            }
+        }
+    }
     GetControlState();
     if (changedData != originData) {
         SaveConfig();

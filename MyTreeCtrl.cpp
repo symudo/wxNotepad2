@@ -183,7 +183,8 @@ void MyTreeCtrl::Initialization(){
     while (sqlite3_step(stmt) == SQLITE_ROW){
         PathRecord record;
         record.ID = sqlite3_column_int(stmt, 0);
-        record.name = wxString::FromUTF8((const char*)sqlite3_column_text(stmt, 1));
+        const unsigned char* nameCol = sqlite3_column_text(stmt, 1);
+        record.name = nameCol ? wxString::FromUTF8(reinterpret_cast<const char*>(nameCol)) : wxString();
         record.parentID = sqlite3_column_int(stmt, 2);
         int typeBit = sqlite3_column_int(stmt, 3);
         record.isFolder = (typeBit & 1);
@@ -217,6 +218,9 @@ void MyTreeCtrl::Initialization(){
 
     if (m_idToItem.count(FolderRootID) && m_idToItem[FolderRootID].IsOk()) {
         appendChildren(FolderRootID, m_idToItem[FolderRootID]);
+    }
+    if (m_idToItem.count(WebCollectionRootID) && m_idToItem[WebCollectionRootID].IsOk()) {
+        appendChildren(WebCollectionRootID, m_idToItem[WebCollectionRootID]);
     }
     if (m_idToItem.count(TrashRootID) && m_idToItem[TrashRootID].IsOk()) {
         bool trashHasChildren = childrenMap.count(TrashRootID) && !childrenMap[TrashRootID].empty();
@@ -281,7 +285,8 @@ void MyTreeCtrl::Initialization(){
     }
     while (sqlite3_step(stmt) == SQLITE_ROW){
         int id = sqlite3_column_int(stmt, 0);
-        wxString name = wxString::FromUTF8((const char*)sqlite3_column_text(stmt, 1));
+        const unsigned char* tagCol = sqlite3_column_text(stmt, 1);
+        wxString name = tagCol ? wxString::FromUTF8(reinterpret_cast<const char*>(tagCol)) : wxString();
         m_TagsList[id] = name;
     }
     sqlite3_finalize(stmt);
@@ -654,7 +659,7 @@ void MyTreeCtrl::RestoreNoteContent(){
     if (!data || data->IsFolder())return;
 
     sqlite3* db = GetMyAppInstance()->db;
-    std::vector<UINT16>* styleData = new std::vector<UINT16>();
+    std::vector<uint32_t>* styleData = new std::vector<uint32_t>();
     wxString noteContent = GetNoteContent(db, currentItem, *styleData);
     wxTreeEvent evt(EVT_SHOW_NODE_CONTENT, GetId());
     evt.SetItem(currentItem);
@@ -1251,7 +1256,8 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
 
                     sqlite3_bind_int(stmt, 1, noteID);
                     if (sqlite3_step(stmt) == SQLITE_ROW){
-                        cardData.contentPreview = CutStringForPreview(wxString::FromUTF8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))));
+                        const unsigned char* cCol = sqlite3_column_text(stmt, 0);
+                        cardData.contentPreview = CutStringForPreview(cCol ? wxString::FromUTF8(reinterpret_cast<const char*>(cCol)) : wxString());
                     }
                     sqlite3_reset(stmt);
 
@@ -1274,7 +1280,7 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
             }
             m_mainFrame->SetStatusText(info, 0);
             m_mainFrame->switchToScintillaCtrl();
-            auto styleData = new std::vector<UINT16>();
+            auto styleData = new std::vector<uint32_t>();
             wxString noteContent = GetNoteContent(db, currentItem, *styleData);
             evt.SetString(noteContent); // 使用SetString传递字符串
             int state = itemData->GetStateIcon() << 1 | (itemType == TrashItemID ? 1 : 0);
@@ -1322,6 +1328,7 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
         }
 
         for (auto&& id : noteIDList){
+            if (m_idToItem.count(id) == 0 || m_idToData.count(id) == 0) continue;
             auto childItem = m_idToItem[id];
             auto childData = m_idToData[id];
 
@@ -1330,7 +1337,8 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
                 wxString notePath = MakePath(childItem);
                 wxString noteTimestamp = CovertToLocalTime(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
                 wxString noteTags = GetNoteTags(db, childData->GetID());
-                wxString noteContent = wxString::FromUTF8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+                const unsigned char* cCol = sqlite3_column_text(stmt, 0);
+                wxString noteContent = cCol ? wxString::FromUTF8(reinterpret_cast<const char*>(cCol)) : wxString();
 
                 CardData cardData{ 1, childData->GetName(), L"标签：" + noteTags, L"修改时间：" + noteTimestamp, CutStringForPreview(noteContent), childData->GetID(), childItem, childData->GetNoteID() };
                 cardList->push_back(std::move(cardData));
@@ -1380,13 +1388,15 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
         }
 
         for (auto&& id : recentNoteIDs){
+            if (m_idToItem.count(id) == 0 || m_idToData.count(id) == 0) continue;
             auto childItem = m_idToItem[id];
             auto childData = m_idToData[id];
 
             sqlite3_bind_int(stmt, 1, childData->GetNoteID());
             if (sqlite3_step(stmt) == SQLITE_ROW){
                 wxString notePath = MakePath(childItem);
-                wxString noteContent = wxString::FromUTF8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+                const unsigned char* cCol = sqlite3_column_text(stmt, 0);
+                wxString noteContent = cCol ? wxString::FromUTF8(reinterpret_cast<const char*>(cCol)) : wxString();
 
                 wxString datetime;
                 if (type == 0) datetime = L"创建时间：" + CovertToLocalTime(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
@@ -1431,7 +1441,7 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
                 "FROM NOTES_FTS "
                 "JOIN NOTES n ON NOTES_FTS.rowid = n.ID "
                 "JOIN PATHS p ON n.PATH_ID = p.ID "
-                "WHERE NOTES_FTS MATCH ? "
+                "WHERE p.TRASHED = 0 AND NOTES_FTS MATCH ? "
                 "ORDER BY p.ID;";
             sqlite3_stmt* stmt = nullptr;
             int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
@@ -1568,14 +1578,15 @@ void MyTreeCtrl::AddWebCollection(const wxString& url, const wxString& title, co
         _wxLogError(L"无法在数据库NOTES中创建新笔记。");
         return;
     }
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     const char* sql = "UPDATE PATHS SET NOTE_ID = ? WHERE ID = ?;";
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK || sqlite3_bind_int(stmt, 1, noteID) != SQLITE_OK ||
         sqlite3_bind_int(stmt, 2, newItemID) != SQLITE_OK || sqlite3_step(stmt) != SQLITE_DONE){
         _wxLogError("SQL error updating NOTE_ID: %s", sqlite3_errmsg(db));
         sqlite3_finalize(stmt);
-
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return;
     }
     sqlite3_finalize(stmt);
     auto noteData = new MyTreeItemData(newItemID, parentID, newNoteName, order, TreeIcon::ICON_NOTE, noteID, false, false, false);
@@ -1955,7 +1966,8 @@ wxString MyTreeCtrl::MakePath(const wxTreeItemId& Id, const wxTreeItemId& rootId
     return path;
 }
 
-wxString MyTreeCtrl::GetNoteContent(sqlite3* db, wxTreeItemId item, std::vector<UINT16>& styleData){
+wxString MyTreeCtrl::GetNoteContent(sqlite3* db, wxTreeItemId item, std::vector<uint32_t>& styleData){
+    styleData.clear();
     wxString content = wxEmptyString;
     auto itemData = static_cast<MyTreeItemData*>(GetItemData(item));
 
@@ -1982,11 +1994,32 @@ wxString MyTreeCtrl::GetNoteContent(sqlite3* db, wxTreeItemId item, std::vector<
         }
         const void* blobData = sqlite3_column_blob(stmt, 1);
         int totalBytes = sqlite3_column_bytes(stmt, 1);
-        if (blobData && totalBytes){
-            int elementCount;
-            memcpy(&elementCount, blobData, sizeof(int));
-            styleData.resize(elementCount);
-            memcpy(styleData.data(), static_cast<const unsigned char*>(blobData) + sizeof(int), elementCount * sizeof(UINT16));
+        if (blobData && totalBytes >= static_cast<int>(sizeof(INT32))){
+            const unsigned char* bytes = static_cast<const unsigned char*>(blobData);
+            INT32 header = 0;
+            memcpy(&header, bytes, sizeof(INT32));
+            if (header == STYLE_BLOB_V2_MAGIC && totalBytes >= static_cast<int>(sizeof(INT32) * 2)){
+                INT32 elementCount = 0;
+                memcpy(&elementCount, bytes + sizeof(INT32), sizeof(INT32));
+                size_t payloadBytes = static_cast<size_t>(totalBytes) - sizeof(INT32) * 2;
+                if (elementCount > 0 && static_cast<size_t>(elementCount) * sizeof(uint32_t) <= payloadBytes){
+                    styleData.resize(elementCount);
+                    memcpy(styleData.data(), bytes + sizeof(INT32) * 2, static_cast<size_t>(elementCount) * sizeof(uint32_t));
+                }
+            } else if (header > 0){
+                // 向后兼容旧版 16-bit V1 STYLEDATA 格式
+                INT32 elementCount = header;
+                size_t payloadBytes = static_cast<size_t>(totalBytes) - sizeof(INT32);
+                if (static_cast<size_t>(elementCount) * sizeof(UINT16) <= payloadBytes){
+                    std::vector<UINT16> legacyData(elementCount);
+                    memcpy(legacyData.data(), bytes + sizeof(INT32), static_cast<size_t>(elementCount) * sizeof(UINT16));
+                    styleData.reserve(elementCount);
+                    for (UINT16 entry : legacyData){
+                        auto [st, pos] = DecompressStyleInfoV1(entry);
+                        styleData.push_back(CompressStyleInfo(st, pos));
+                    }
+                }
+            }
         }
     } else{
         _wxLogError("No note content found or query failed: %s", sqlite3_errmsg(db));
@@ -2027,7 +2060,7 @@ wxString MyTreeCtrl::GetWebNoteUrl(sqlite3* db, wxTreeItemId& item){
 
 void MyTreeCtrl::ExportNode(const wxString& currentBaseDir, const wxTreeItemId& item){
     sqlite3* db = GetMyAppInstance()->db;
-    std::vector<UINT16> styleData;
+    std::vector<uint32_t> styleData;
     wxString content = GetNoteContent(db, item, styleData);
     auto itemData = static_cast<MyTreeItemData*>(GetItemData(item));
     if (!itemData) return;
@@ -2275,14 +2308,15 @@ bool MyTreeCtrl::CreateNoteWithContent(const wxString& initialTitle, const wxStr
         return false;
     }
     // 更新PATHS表中的NOTE_ID字段
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     const char* sql = "UPDATE PATHS SET NOTE_ID = ? WHERE ID = ?;";
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK || sqlite3_bind_int(stmt, 1, noteID) != SQLITE_OK ||
         sqlite3_bind_int(stmt, 2, newItemID) != SQLITE_OK || sqlite3_step(stmt) != SQLITE_DONE){
         _wxLogError("SQL error updating NOTE_ID: %s", sqlite3_errmsg(db));
         sqlite3_finalize(stmt);
-
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return false;
     }
     sqlite3_finalize(stmt);
     // 2. 在map和wxTreeCtrl中创建新笔记节点
@@ -2937,7 +2971,8 @@ void MyTreeCtrl::PostEventToCardViewPanel(const wxTreeItemId& currentItem){
 
             sqlite3_bind_int(stmt, 1, noteID);
             if (sqlite3_step(stmt) == SQLITE_ROW){
-                cardData.contentPreview = CutStringForPreview(wxString::FromUTF8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))));
+                const unsigned char* cCol = sqlite3_column_text(stmt, 0);
+                cardData.contentPreview = CutStringForPreview(cCol ? wxString::FromUTF8(reinterpret_cast<const char*>(cCol)) : wxString());
             }
             sqlite3_reset(stmt);
 
@@ -3082,14 +3117,15 @@ wxTreeItemId MyTreeCtrl::FindOrCreateWebCollectionNote(const wxTreeItemId& paren
         return wxTreeItemId();
     }
     // 更新PATHS表中的NOTE_ID字段
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     const char* sql = "UPDATE PATHS SET NOTE_ID = ? WHERE ID = ?;";
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK || sqlite3_bind_int(stmt, 1, noteID) != SQLITE_OK ||
         sqlite3_bind_int(stmt, 2, newItemID) != SQLITE_OK || sqlite3_step(stmt) != SQLITE_DONE){
         _wxLogError("SQL error updating NOTE_ID: %s", sqlite3_errmsg(db));
         sqlite3_finalize(stmt);
-
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return wxTreeItemId();
     }
     sqlite3_finalize(stmt);
     auto noteData = new MyTreeItemData(newItemID, parentID, targetText, order, TreeIcon::ICON_NOTE, noteID, false, false, false);

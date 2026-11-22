@@ -38,6 +38,14 @@ void MongooseServer::Stop() {
     if (m_thread.joinable()) {
         m_thread.join();
     }
+    {
+        std::lock_guard<std::mutex> lock(m_sessionMutex);
+        m_sessions.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_responseMutex);
+        m_responseQueue.clear();
+    }
 }
 
 void MongooseServer::Run(std::string address) {
@@ -181,10 +189,12 @@ void MongooseServer::EventHandler(struct mg_connection* c, int ev, void* ev_data
                 task->content = wxString::FromUTF8(hm->body.buf, hm->body.len);
             }
 
-            if (self->m_mainFrame) {
+            if (self->m_mainFrame && self->m_running) {
                 wxThreadEvent* evt = new wxThreadEvent(wxEVT_THREAD, EVT_HTTP_REQUEST);
                 evt->SetPayload(task);
                 wxQueueEvent(self->m_mainFrame, evt);
+            } else {
+                delete task;
             }
         } else {
             mg_http_reply(c, 405, "Access-Control-Allow-Origin: *\r\n", "Method Not Allowed");

@@ -631,7 +631,7 @@ void MySTC::UpdateRegionIndicators() {
     // UpdateExtensionIndicators(m_currentType);
 }
 
-void MySTC::GetStyleData(std::vector<UINT16>& styles) {
+void MySTC::GetStyleData(std::vector<uint32_t>& styles) {
     styles.clear();
     int endPos = GetTextLength();
     if (!m_hasCustomStyle || endPos <= 0) {
@@ -663,19 +663,27 @@ void MySTC::GetStyleData(std::vector<UINT16>& styles) {
     }
 }
 
-void MySTC::SetStyleData(std::vector<UINT16>& styles) {
-    if (styles.size() == 0) return;
+void MySTC::SetStyleData(std::vector<uint32_t>& styles) {
+    if (styles.empty()) return;
+    int docLen = GetTextLength();
+    if (docLen <= 0) return;
     m_hasCustomStyle = true;
     for (size_t i = 0; i < styles.size(); i++) {
         auto [style, position] = DecompressStyleInfo(styles[i]);
-        int length;
-        if (i == styles.size() - 1) {
-            length = GetTextLength() - position;
-        } else {
+        if (position < 0 || position >= docLen) continue;
+        int endPos = docLen;
+        if (i + 1 < styles.size()) {
             auto [nextStyle, nextPosition] = DecompressStyleInfo(styles[i + 1]);
-            length = nextPosition - position;
+            if (nextPosition > position && nextPosition < docLen) {
+                endPos = nextPosition;
+            } else if (nextPosition <= position) {
+                continue;
+            }
         }
-        ApplyStyle(position, style, length);
+        int length = endPos - position;
+        if (length > 0) {
+            ApplyStyle(position, style, length);
+        }
     }
 }
 
@@ -788,7 +796,7 @@ void MySTC::ExtractOutlineItems(const std::vector<OutlineRange>& ranges, std::ve
 void MySTC::CustomLink(wxCommandEvent& event) {
     auto selected = GetSelectedText();
     int id = event.GetId() - MainFrame::MENU_CUSTOM_LINK_BASE;
-    if (m_customLinks[id].id == 0)return;
+    if (id < 0 || id >= 5 || m_customLinks[id].id == 0) return;
     wxString command = ReplaceFirstOccurrence(m_customLinks[id].command, "%s", selected);
     if (m_customLinks[id].id == 1) {
         wxLaunchDefaultBrowser(command);
@@ -1047,6 +1055,7 @@ void MySTC::JoinLines() {
 }
 
 void MySTC::SwitchLine(bool up) {
+    if (GetReadOnly()) return;
     int totalLines = GetLineCount();
     if (totalLines < 2) {
         return;
@@ -1055,7 +1064,7 @@ void MySTC::SwitchLine(bool up) {
     int currentLineNum = GetCurrentLine();
     int targetLineNum = up ? currentLineNum - 1 : currentLineNum + 1;
 
-    if (up && currentLineNum == 0 || !up && currentLineNum == totalLines - 1) {
+    if ((up && currentLineNum == 0) || (!up && currentLineNum == totalLines - 1)) {
         return;
     }
     BeginUndoAction();
@@ -1091,35 +1100,37 @@ void MySTC::SwitchLine(bool up) {
     SetTargetEnd(endPos);
     ReplaceTarget(combinedText);
 
-    EndUndoAction();
-
-    // 7. 恢复光标位置
-    newCursorPos = PositionFromLine(targetLineNum) + cursorOffset;
-    GotoPos(newCursorPos);
-
-    // 8. 删除多余的换行符
-    if (isLastLineSwap) {
-        // 在末尾删除之前添加的换行符
+    // 7. 删除之前添加的临时换行符（纳入同一 Undo 事务，单步 Ctrl+Z 即可完整撤销）
+    if (isLastLineSwap && GetTextLength() > 0) {
         SetTargetStart(GetTextLength() - 1);
         SetTargetEnd(GetTextLength());
         ReplaceTarget(wxString());
     }
+
+    EndUndoAction();
+
+    // 8. 恢复光标位置
+    newCursorPos = PositionFromLine(targetLineNum) + cursorOffset;
+    if (newCursorPos > GetTextLength()) {
+        newCursorPos = GetTextLength();
+    }
+    GotoPos(newCursorPos);
 }
 
 void MySTC::InsertDateTime(int i) {
+    if (GetReadOnly()) return;
     wxDateTime now = wxDateTime::Now();
     wxString str;
-    int offset = 0;
     if (i == 1) {
         str = now.Format("%y/%m/%d %H:%M");
     } else if (i == 2) {
         str = now.Format("%Y-%m-%d %H:%M:%S");
     } else {
         str = now.Format(L"%Y年%m月%d日 %H:%M:%S");
-        offset = 6;
     }
-    InsertText(GetCurrentPos(), str);
-    GotoPos(GetCurrentPos() + str.length() + offset);
+    int curPos = GetCurrentPos();
+    InsertText(curPos, str);
+    GotoPos(curPos + static_cast<int>(str.ToUTF8().length()));
 }
 
 void MySTC::InsertSerials(wxArrayString& serials) {
@@ -1375,7 +1386,7 @@ MySTC::~MySTC() {
     onig_end();
 }
 
-void MySTC::LoadContent(wxString& content, int state, std::vector<UINT16>& styles) {
+void MySTC::LoadContent(wxString& content, int state, std::vector<uint32_t>& styles) {
     bool readOnly = state & 1;
     int stateIcon = state >> 1;
     //根据图标判断
@@ -1401,6 +1412,8 @@ void MySTC::LoadContent(wxString& content, int state, std::vector<UINT16>& style
 }
 
 void MySTC::initBind2() {
+    if (m_updateUiBound) return;
+    m_updateUiBound = true;
     Bind(wxEVT_STC_UPDATEUI, &MySTC::OnStcUpdateUI, this);
 }
 
@@ -1710,10 +1723,13 @@ CompositeDropTarget::CompositeDropTarget(MySTC* stc) :wxDropTarget(), m_stc(stc)
 }
 
 bool CompositeDropTarget::OnDrop(wxCoord x, wxCoord y) {
-    if (GetDataObject()->IsSupported(wxDF_UNICODETEXT) || GetDataObject()->IsSupported(wxDF_FILENAME)) {
-        return wxDragCopy;
+    if (m_stc && m_stc->GetReadOnly()) {
+        return false;
     }
-    return wxDragNone;
+    if (GetDataObject()->IsSupported(wxDF_UNICODETEXT) || GetDataObject()->IsSupported(wxDF_FILENAME)) {
+        return true;
+    }
+    return false;
 }
 
 wxDragResult CompositeDropTarget::OnData(wxCoord x, wxCoord y, wxDragResult defResult) {
@@ -1816,6 +1832,14 @@ ImagePreviewPopup::ImagePreviewPopup(wxWindow* parent) : wxPopupWindow(parent, w
     Bind(wxEVT_THREAD, &ImagePreviewPopup::OnImageLoaded, this);
 }
 
+ImagePreviewPopup::~ImagePreviewPopup() {
+    m_expiryTimer.Stop();
+    if (m_aliveGuard) {
+        std::lock_guard<std::mutex> lock(m_aliveGuard->mtx);
+        m_aliveGuard->alive = false;
+    }
+}
+
 void ImagePreviewPopup::RequestImage(const wxString& filePath) {
     if (!wxFileExists(filePath))return;
     m_targetPath = filePath;
@@ -1842,26 +1866,33 @@ void ImagePreviewPopup::RequestImage(const wxString& filePath) {
     }
     m_loadingPaths.insert(filePath);
 
-    std::thread([this, filePath]() {
+    auto guard = m_aliveGuard;
+    int maxSize = m_maxsize;
+    std::thread([this, guard, maxSize, filePath]() {
         wxImage image;
         _wxLogMessage(L"后台载入图片中: %s", filePath);
+        wxThreadEvent* evt = nullptr;
         if (image.LoadFile(filePath)) {
             _wxLogMessage(L"载入完成: %s", filePath);
             int w = image.GetWidth();
             int h = image.GetHeight();
-            if (w > m_maxsize || h > m_maxsize) {
-                double scale = std::min((double)m_maxsize / w, (double)m_maxsize / h);
-                image.Rescale(w * scale, h * scale);
+            if (w > maxSize || h > maxSize) {
+                double scale = std::min((double)maxSize / w, (double)maxSize / h);
+                image.Rescale(wxMax(1, static_cast<int>(w * scale)), wxMax(1, static_cast<int>(h * scale)));
             }
 
-            wxThreadEvent* evt = new wxThreadEvent(wxEVT_THREAD, wxID_ANY);
+            evt = new wxThreadEvent(wxEVT_THREAD, wxID_ANY);
             evt->SetPayload(image);
             evt->SetString(filePath);
+        } else {
+            evt = new wxThreadEvent(wxEVT_THREAD, wxID_ANY);
+            evt->SetString(L"LOAD_FAILED:" + filePath);
+        }
+        std::lock_guard<std::mutex> lock(guard->mtx);
+        if (guard->alive) {
             wxQueueEvent(this, evt);
         } else {
-            wxThreadEvent* evt = new wxThreadEvent(wxEVT_THREAD, wxID_ANY);
-            evt->SetString(L"LOAD_FAILED:" + filePath);
-            wxQueueEvent(this, evt);
+            delete evt;
         }
         }).detach();
 }

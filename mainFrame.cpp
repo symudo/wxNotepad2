@@ -820,8 +820,11 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
 MainFrame::~MainFrame() {
     m_autoSaveTimer.Stop();
     UnregisterGlobalHotKey();
-    // 移除监听器
-    EnableClipboardListener(false);
+    // 析构期直接移除 Win32 剪贴板监听，避免访问正在销毁的状态栏/工具栏
+    if (m_EnableClipboardToSTC && m_hMainFrame) {
+        ::RemoveClipboardFormatListener(m_hMainFrame);
+        m_EnableClipboardToSTC = false;
+    }
     if (m_server) {
         delete m_server;
         m_server = nullptr;
@@ -1029,7 +1032,7 @@ void MainFrame::switchToScintillaCtrl() {
     if (m_Choice)m_Choice->Enable();
 }
 
-void MainFrame::OnExit() {
+void MainFrame::PersistStateBeforeExit() {
     if (m_tree) {
         m_tree->CommitPendingLabelEdit();
     }
@@ -1052,12 +1055,17 @@ void MainFrame::OnExit() {
     auto App = GetMyAppInstance();
     wxFileConfig config{ wxEmptyString,wxEmptyString,App->GetConfigFilePath(), wxEmptyString, wxCONFIG_USE_LOCAL_FILE };
 
-    wxPoint pos = GetPosition();
-    wxSize size = GetSize();
-    config.Write("MainWindow/X", pos.x);
-    config.Write("MainWindow/Y", pos.y);
-    config.Write("MainWindow/Width", size.x);
-    config.Write("MainWindow/Height", size.y);
+    // 最小化时 Windows 会返回 (-32000, -32000) 坐标，必须跳过保存以防下次启动窗口飞出屏幕外
+    if (!IsIconized()) {
+        wxPoint pos = GetPosition();
+        wxSize size = GetSize();
+        if (pos.x > -10000 && pos.y > -10000 && size.x >= 200 && size.y >= 150) {
+            config.Write("MainWindow/X", pos.x);
+            config.Write("MainWindow/Y", pos.y);
+            config.Write("MainWindow/Width", size.x);
+            config.Write("MainWindow/Height", size.y);
+        }
+    }
     int splitterWidth = m_treeVisible ? m_splitter->GetSashPosition() : m_savedSplitterPos;
     config.Write("MainWindow/Width_Splitter", splitterWidth);
     config.Write("Tree/ShowTags", m_showTags);
@@ -1068,15 +1076,26 @@ void MainFrame::OnExit() {
         config.Write("Shortcuts/Shortcut" + std::to_string(i + 1), m_quickSwitchMenuIds[i]);
     }
     config.Flush(); // 确保数据写入文件
+}
 
+void MainFrame::OnExit() {
+    PersistStateBeforeExit();
     Destroy();
 }
 
 void MainFrame::OnRestart() {
-    wxString exePath = wxStandardPaths::Get().GetExecutablePath() + GetMyAppInstance()->GetOriginalArgs();
+    // 先落盘未保存笔记与配置再启动新进程，避免新旧进程读写配置/数据库竞态
+    PersistStateBeforeExit();
+    if (m_server) {
+        m_server->Stop();
+    }
+    // 可执行文件路径加双引号包裹，防止目录含空格（如 Program Files）导致重启失败
+    wxString exePath = wxString::Format(L"\"%s\"%s",
+        wxStandardPaths::Get().GetExecutablePath(),
+        GetMyAppInstance()->GetOriginalArgs());
     GetMyAppInstance()->DelSingleInstanceChecker();
     if (wxExecute(exePath)) {
-        OnExit();
+        Destroy();
     } else {
         _wxLogError(L"重启失败");
     }
@@ -1102,17 +1121,20 @@ bool MainFrame::SaveNoteContent(int noteID) {
     bool success = false;
 
     auto bindStyleBlob = [this](sqlite3_stmt* targetStmt, int paramIndex) {
-        std::vector<UINT16> styleData;
+        std::vector<uint32_t> styleData;
         m_scintilla->GetStyleData(styleData);
         INT32 elementCount = static_cast<INT32>(styleData.size());
         if (elementCount == 0) {
             sqlite3_bind_null(targetStmt, paramIndex);
             return;
         }
-        size_t totalBytes = sizeof(INT32) + styleData.size() * sizeof(UINT16);
+        // V2 格式：[INT32 magic=-2][INT32 elementCount][uint32_t * elementCount]
+        const INT32 magic = STYLE_BLOB_V2_MAGIC;
+        size_t totalBytes = sizeof(INT32) * 2 + styleData.size() * sizeof(uint32_t);
         std::vector<unsigned char> buffer(totalBytes);
-        memcpy(buffer.data(), &elementCount, sizeof(INT32));
-        memcpy(buffer.data() + sizeof(INT32), styleData.data(), elementCount * sizeof(UINT16));
+        memcpy(buffer.data(), &magic, sizeof(INT32));
+        memcpy(buffer.data() + sizeof(INT32), &elementCount, sizeof(INT32));
+        memcpy(buffer.data() + sizeof(INT32) * 2, styleData.data(), styleData.size() * sizeof(uint32_t));
         sqlite3_bind_blob(targetStmt, paramIndex, buffer.data(), static_cast<int>(totalBytes), SQLITE_TRANSIENT);
     };
 
@@ -1587,14 +1609,19 @@ void MainFrame::OnHttpRequest(wxThreadEvent& event) {
         delete task;
     } else if (task->action == L"append_to_note") {
         m_tree->SwitchToWebCollectionNote();
-        //用CallAfter异步执行
+        //用CallAfter异步执行，并校验窗口与编辑页有效状态
         CallAfter([this, task]() {
-            this->m_scintilla->AppendText("\n----------------------------------------\n"
-                + task->title + "\n" + task->content
-            );
-
-            std::string responseJson = "{\"status\":\"success\"}";
-            m_server->SendResponse(task->requestId, responseJson);
+            if (!IsBeingDeleted() && m_scintilla && m_simplebook &&
+                m_simplebook->GetSelection() == ID_ScintillaPage && !m_scintilla->GetReadOnly()) {
+                m_scintilla->AppendText("\n----------------------------------------\n"
+                    + task->title + "\n" + task->content
+                );
+                if (m_server) {
+                    m_server->SendResponse(task->requestId, "{\"status\":\"success\"}");
+                }
+            } else if (m_server) {
+                m_server->SendResponse(task->requestId, "{\"status\":\"error\",\"message\":\"editor unavailable\"}");
+            }
             delete task;
             });
     } else {
@@ -1675,6 +1702,7 @@ void MainFrame::SetClipboardBlackList() {
     wxString combinedString = wxEmptyString;
     config.Read("Scintilla/ClipboardBlackList", &combinedString);
     auto SEP = ';';
+    delete m_ClipboardBlackList;
     if (!combinedString.IsEmpty()) {
         m_ClipboardBlackList = new wxArrayString(wxSplit(combinedString, SEP, '\0'));
     } else {
@@ -1878,9 +1906,14 @@ void MainFrame::TouchNoteAccessTime(int noteID) {
 void MainFrame::OnShowNoteContent(wxTreeEvent& event) {
     wxString content = event.GetString();
     int i = event.GetInt();
-    auto styleData = (std::vector<UINT16>*)(event.GetClientData());
+    auto styleData = static_cast<std::vector<uint32_t>*>(event.GetClientData());
     ResetAutoSaveSession();
-    m_scintilla->LoadContent(content, i, *styleData);
+    if (styleData) {
+        m_scintilla->LoadContent(content, i, *styleData);
+    } else {
+        std::vector<uint32_t> emptyStyles;
+        m_scintilla->LoadContent(content, i, emptyStyles);
+    }
     wxTreeItemId item = event.GetItem();
     if (item.IsOk() && m_tree) {
         int type = m_tree->GetTreeItemType(item);
@@ -1902,7 +1935,7 @@ void MainFrame::OnEditTags(wxCommandEvent& event) {
     auto selectedItem = m_tree->GetSelection();
     if (!selectedItem.IsOk())return;
     int type = m_tree->GetTreeItemType(selectedItem);
-    if (type != MyTreeCtrl::FolderItemID)return;
+    if (type != MyTreeCtrl::FolderItemID && type != MyTreeCtrl::WebCollectionItemID)return;
     MyTreeItemData* data = static_cast<MyTreeItemData*>(this->m_tree->GetItemData(selectedItem));
     if (data->IsFolder())return;
 
