@@ -613,14 +613,9 @@ void MainFrame::CreateMyToolBar() {
     bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_tag, color, 73), Size_i);
     toolBar->AddTool(MENU_EDIT_TAGS, L"编辑标签...", bundle, L"查看和编辑标签");
     toolBar->AddSeparator();
-    bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_copy_all, color, 73), Size_i);
-    toolBar->AddTool(MENU_COPY_ALL, L"复制全文", bundle, L"一键复制当前笔记全文 (Ctrl+Shift+C)");
-    bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_replace_paste, color, 73), Size_i);
-    toolBar->AddTool(MENU_REPLACE_PASTE, L"覆盖粘贴", bundle, L"清空当前笔记并替换为剪贴板内容 (Ctrl+Shift+V)");
     bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_clipboard_watch, color, 73), Size_i);
     toolBar->AddTool(MENU_APPEND_CLIPBOARD, L"监听剪贴板", bundle, L"自动将剪贴板新内容追加到当前笔记", wxITEM_CHECK);
     toolBar->ToggleTool(MENU_APPEND_CLIPBOARD, m_EnableClipboardToSTC);
-    toolBar->AddSeparator();
     bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_font_style, color, 73), Size_i);
     toolBar->AddTool(TOOLBAR_SET_STYLE, L"设置样式", bundle, L"设置选中文本样式");
     bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_undo, color, 73), Size_i);
@@ -639,6 +634,11 @@ void MainFrame::CreateMyToolBar() {
     toolBar->AddTool(MENU_SEARCH_REPLACE, L"查找替换", bundle, L"查找和替换");
     bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_database_search, color, 73), Size_i);
     toolBar->AddTool(MENU_FIND_SQL, L"查找所有", bundle, L"在所有笔记中查找");
+    toolBar->AddSeparator();
+    bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_copy_all, color, 73), Size_i);
+    toolBar->AddTool(MENU_COPY_ALL, L"复制全文", bundle, L"一键复制当前笔记全文 (Ctrl+Shift+C)");
+    bundle = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_replace_paste, color, 73), Size_i);
+    toolBar->AddTool(MENU_REPLACE_PASTE, L"覆盖粘贴", bundle, L"清空当前笔记并替换为剪贴板内容 (Ctrl+Shift+V)");
 
 
     bool hideNavbar = config->ReadBool("Toolbar/HideNavbar", false);
@@ -1294,7 +1294,9 @@ void MainFrame::OnUpdateQuickSwitchMenu(wxUpdateUIEvent& event) {
     if (!m_tree || !GetMenuBar())return;
 
     wxMenuBar* menuBar = GetMenuBar();
-    wxMenu* navMenu = menuBar->GetMenu(menuBar->FindMenu(L"导航"));
+    int navIdx = menuBar->FindMenu(L"导航");
+    if (navIdx == wxNOT_FOUND) return;
+    wxMenu* navMenu = menuBar->GetMenu(navIdx);
     if (!navMenu)return;
 
     wxMenuItem* quickSwitchItem, * deleteHotkeyItem, * assignHotkeyItem;
@@ -1302,6 +1304,7 @@ void MainFrame::OnUpdateQuickSwitchMenu(wxUpdateUIEvent& event) {
         quickSwitchItem = navMenu->FindItem(MENU_QUICK_SWITCH_BASE + i);
         deleteHotkeyItem = navMenu->FindItem(MENU_DELETE_HOTKEY_BASE + i);
         assignHotkeyItem = navMenu->FindItem(MENU_ASSIGN_HOTKEY_BASE + i);
+        if (!quickSwitchItem || !deleteHotkeyItem || !assignHotkeyItem) continue;
 
         //判断节点有效性，有效则设置显示名称，无效则设置不可用
         if (m_quickSwitchMenuIds[i] > 0 && this->m_tree->m_idToItem.count(m_quickSwitchMenuIds[i]) > 0) {
@@ -1432,7 +1435,7 @@ void MainFrame::OnFocusChoice(wxMouseEvent& event) {
     }
     m_scintilla->GetOutlineStyle(m_outlineList);
     for (const auto& item : m_outlineList) {
-        m_Choice->Append(item.text, (void*)item.position);
+        m_Choice->Append(item.text, reinterpret_cast<void*>(static_cast<intptr_t>(item.position)));
     }
 }
 
@@ -1442,7 +1445,7 @@ void MainFrame::OnOutlineSelect(wxCommandEvent& event) {
     int selection = event.GetSelection();
     if (selection == wxNOT_FOUND)return;
     void* clientData = m_Choice->GetClientData(selection);
-    int position = (int)clientData;
+    int position = static_cast<int>(reinterpret_cast<intptr_t>(clientData));
     m_scintilla->GotoPos(position);
     m_scintilla->SetFocus();
 }
@@ -1662,6 +1665,7 @@ void MainFrame::StartServer() {
 }
 
 void MainFrame::OnRepairEncoding(wxCommandEvent& event) {
+    if (!m_scintilla || m_scintilla->GetReadOnly()) return;
     auto str = m_scintilla->GetText();
     auto rawBytes = str.mb_str(wxConvISO8859_1);
     size_t rawLen = rawBytes.length();

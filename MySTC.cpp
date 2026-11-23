@@ -906,6 +906,7 @@ void MySTC::OnUpdatingTimer(wxTimerEvent& event) {
 }
 
 void MySTC::RemoveEmptyLines() {
+    if (GetReadOnly()) return;
     int totalLines = GetLineCount();
     if (totalLines <= 0) {
         _wxLogDebug("Document is empty");
@@ -1134,7 +1135,7 @@ void MySTC::InsertDateTime(int i) {
 }
 
 void MySTC::InsertSerials(wxArrayString& serials) {
-    if (serials.empty()) return;
+    if (GetReadOnly() || serials.empty()) return;
     int selCount = GetSelections();
     if (selCount <= 0) return;
     std::vector<int> originalCarets;

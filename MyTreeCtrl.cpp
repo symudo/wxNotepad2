@@ -166,7 +166,7 @@ void MyTreeCtrl::Initialization(){
 
     // 开始读取paths并构建树
     sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     // 查询所有 PATHS 表中的数据，并直接按 PARENT_ID 和 NODE_ORDER 进行排序
     const char* sql = "SELECT ID, NAME, PARENT_ID, TYPE, NODE_ORDER, STATEICON, NOTE_ID, TRASHED FROM PATHS ORDER BY PARENT_ID, NODE_ORDER ASC;";
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
@@ -327,7 +327,6 @@ void MyTreeCtrl::InitBind(){
     Bind(wxEVT_MENU, &MyTreeCtrl::OnChangeIconStyle, this, MainFrame::MENU_ICON_CHANGE_STYLE_RESTORE, MainFrame::MENU_ICON_CHANGE_STYLE_TOP);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnDeleteItem, this, MainFrame::MENU_DELETE_ITEM);
     Bind(wxEVT_MENU, &MyTreeCtrl::OnRemoveTag, this, MainFrame::MENU_REMOVE_TAG);
-    Bind(wxEVT_MENU, &MyTreeCtrl::OnNewTag, this, MainFrame::MENU_NEW_TAG);
     //Bind(wxEVT_MENU, &MyTreeCtrl::OnDeleteItem, this, MainFrame::MENU_DELETE_EXTENSION);
 }
 
@@ -402,7 +401,7 @@ void MyTreeCtrl::OnEndLabelEdit(wxTreeEvent& event){
     //处理 PATHS 或 TAGS 表的更新
     if ((itemType == FolderItemID) || (itemType == WebCollectionItemID)){
         // PATHS 表更新
-        sqlite3_stmt* stmt;
+        sqlite3_stmt* stmt = nullptr;
         const char* sql = "UPDATE PATHS SET NAME = ? WHERE ID = ?;";
         int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
         if (rc != SQLITE_OK){
@@ -460,7 +459,7 @@ void MyTreeCtrl::OnEndLabelEdit(wxTreeEvent& event){
         }
 
         // TAGS 表更新
-        sqlite3_stmt* stmt;
+        sqlite3_stmt* stmt = nullptr;
         const char* sql = "UPDATE TAGS SET TAG_NAME = ? WHERE ID = ?;";
         int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
         if (rc != SQLITE_OK){
@@ -540,8 +539,8 @@ void MyTreeCtrl::OnEndDrag(wxTreeEvent& event){
     wxPoint dropPoint = event.GetPoint(); // 获取鼠标释放时的坐标
     int flags = 0;
     wxTreeItemId dropTargetItem = HitTest(dropPoint, flags);
-    //判断状态，首先不允许拖动到自身或子节点
-    if (m_draggedItem == dropTargetItem || IsTreeItemDescendant(m_draggedItem, dropTargetItem)){
+    // 判断目标有效且不允许拖动到自身或子节点（防止拖到空白处导致无效项死循环）
+    if (!dropTargetItem.IsOk() || m_draggedItem == dropTargetItem || IsTreeItemDescendant(m_draggedItem, dropTargetItem)){
         m_isDragging = false;
         m_draggedItem.Unset();
         return;
@@ -556,7 +555,7 @@ void MyTreeCtrl::OnEndDrag(wxTreeEvent& event){
         state = 3;
     } else if (draggedItemType == TrashItemID && (dropTargetItemType == TrashItemID || dropTargetItemType == TrashRootID)){
         state = 1;
-    } else if (draggedItemType == WebCollectionItemID && (dropTargetItemType == WebCollectionItemID || draggedItemType == WebCollectionRootID)){
+    } else if (draggedItemType == WebCollectionItemID && (dropTargetItemType == WebCollectionItemID || dropTargetItemType == WebCollectionRootID)){
         state = 1;
     } else if (draggedItemType == WebCollectionItemID && (dropTargetItemType == FolderItemID || dropTargetItemType == FolderRootID)){
         state = 4;
@@ -582,8 +581,9 @@ void MyTreeCtrl::OnEndDrag(wxTreeEvent& event){
 }
 
 inline bool MyTreeCtrl::IsTreeItemDescendant(wxTreeItemId parent, wxTreeItemId child){
+    if (!parent.IsOk() || !child.IsOk()) return false;
     //判断child是否是parent的子节点
-    for (auto currentItem = GetItemParent(child); currentItem != m_hiddenRoot; currentItem = GetItemParent(currentItem)){
+    for (auto currentItem = GetItemParent(child); currentItem.IsOk() && currentItem != m_hiddenRoot; currentItem = GetItemParent(currentItem)){
         if (currentItem == parent){
             return true;
         }
@@ -596,15 +596,26 @@ void MyTreeCtrl::OnChangeNoteTags(wxTreeEvent& event){
     wxTreeItemId itemId = event.GetItem();
     auto str = event.GetString();
     auto tagToDel = static_cast<std::vector<int>*>(event.GetClientData());
+    if (!itemId.IsOk()){
+        delete tagToDel;
+        return;
+    }
     sqlite3* db = GetMyAppInstance()->db;
     sqlite3_exec(db, "BEGIN;", nullptr, nullptr, nullptr);
     //首先处理标签删除
-    for (auto tagID : *tagToDel){
-        RemoveTagForNote(itemId, tagID);
+    if (tagToDel){
+        for (auto tagID : *tagToDel){
+            RemoveTagForNote(itemId, tagID);
+        }
+        delete tagToDel;
     }
-    delete tagToDel;
-    //然后处理标签添加
-    auto TagStrs = wxSplit(str, ' ');
+    //然后处理标签添加（同时支持空格、Tab 与换行分隔）
+    wxString normalized = str;
+    normalized.Replace(L"\r\n", L" ");
+    normalized.Replace(L"\r", L" ");
+    normalized.Replace(L"\n", L" ");
+    normalized.Replace(L"\t", L" ");
+    auto TagStrs = wxSplit(normalized, ' ');
     for (auto tagName : TagStrs){
         if (tagName.IsEmpty())continue;
         int existID = CheckTagExits(tagName);
@@ -753,7 +764,7 @@ void MyTreeCtrl::UpdateStateIcon(sqlite3* db, wxTreeItemId item){
     int recordID = itemData->GetID();
     int currentStateIcon = itemData->GetStateIcon();
     const char* sql = "UPDATE PATHS SET STATEICON = ? WHERE ID = ?;";
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK){
         return;
@@ -816,7 +827,7 @@ void MyTreeCtrl::RemoveTagForNote(wxTreeItemId item, int tagID){
 }
 
 int MyTreeCtrl::AddNewTag(sqlite3* db, wxString& name){
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     int newID = -1;
     const char* sql = "INSERT INTO TAGS (TAG_NAME) VALUES (?);";
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
@@ -965,7 +976,7 @@ int MyTreeCtrl::CheckTagExits(wxString& name){
 
 std::unordered_set<int> MyTreeCtrl::GetNoteTagList(sqlite3* db, int pathID){
     std::unordered_set<int> tagIDs;
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
 
     const char* sql = "SELECT TAG_ID FROM PATHS_TAGS WHERE PATH_ID = ?;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
@@ -1071,7 +1082,7 @@ wxString MyTreeCtrl::GetNoteTimestamp(sqlite3* db, int noteID, int type){
 
 void MyTreeCtrl::RemoveTagFromTags(sqlite3* db, int tagID){
     const char* sql = "DELETE FROM TAGS WHERE ID = ?;";
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK || sqlite3_bind_int(stmt, 1, tagID) != SQLITE_OK ||
         sqlite3_step(stmt) != SQLITE_DONE){
@@ -1090,7 +1101,7 @@ void MyTreeCtrl::DeleteItemAndData(sqlite3* db, wxTreeItemId item){
     m_idToItem.erase(i);
     m_idToData.erase(i);
     const char* sql = "DELETE FROM PATHS WHERE ID = ?;";
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK || sqlite3_bind_int(stmt, 1, i) != SQLITE_OK ||
         sqlite3_step(stmt) != SQLITE_DONE){
@@ -1219,7 +1230,7 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
             auto cardList = new std::vector<CardData>();
             wxTreeItemIdValue cookie;
 
-            sqlite3_stmt* stmt;
+            sqlite3_stmt* stmt = nullptr;
             const char* sql = "SELECT CONTENT FROM NOTES WHERE ID = ?;";
             if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
                 _wxLogError("SQL prepare failed: %s", sqlite3_errmsg(db));
@@ -1319,7 +1330,7 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
         auto tagItemID = itemData->GetID();
         auto noteIDList = GetNotesWithTag(db, tagItemID);
 
-        sqlite3_stmt* stmt;
+        sqlite3_stmt* stmt = nullptr;
         const char* sql = "SELECT CONTENT, MODIFY_TIME FROM NOTES WHERE ID = ?;";
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
             _wxLogError("SQL prepare failed: %s", sqlite3_errmsg(db));
@@ -1379,7 +1390,7 @@ void MyTreeCtrl::OnSelChanged(wxTreeEvent& event){
 
         auto recentNoteIDs = GetRecentNotes(db, type, m_mainFrame->m_recentMaxCount);
         cardList->reserve(m_mainFrame->m_recentMaxCount);
-        sqlite3_stmt* stmt;
+        sqlite3_stmt* stmt = nullptr;
         const char* sql = "SELECT CONTENT, CREATE_TIME, MODIFY_TIME, ACCESS_TIME FROM NOTES WHERE ID = ?;";
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
             _wxLogError("SQL prepare failed: %s", sqlite3_errmsg(db));
@@ -1654,7 +1665,7 @@ void MyTreeCtrl::RenameCurrentItem(wxString& newName){
     bool fileModified = GetItemText(selectedItem).EndsWith("*");
     auto id = itemData->GetID();
     sqlite3* db = GetMyAppInstance()->db;
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     const char* sql = "UPDATE PATHS SET NAME = ? WHERE ID = ?";
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK){
@@ -2103,7 +2114,7 @@ void MyTreeCtrl::OnEmptyRecycleBin(wxCommandEvent& event){
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
     std::vector<int> itemsToDelete;
     const char* sql = "DELETE FROM PATHS WHERE TRASHED = 1 RETURNING ID;";
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK){
         _wxLogError("SQL error preparing statement: %s", sqlite3_errmsg(db));
@@ -2443,13 +2454,13 @@ void MyTreeCtrl::OnImportNote(wxCommandEvent& event){
         clickedItemData = static_cast<MyTreeItemData*>(GetItemData(clickedItem));
     }
 
-    // 弹出文件选择对话框 (支持多选)
+    // 弹出文件选择对话框 (支持多选 TXT / MD)
     wxFileDialog openFileDialog(
         this,
-        L"选择要导入的 TXT 文件",
+        L"选择要导入的笔记文件",
         wxEmptyString,
         wxEmptyString,
-        L"文本文件 (*.txt)|*.txt",
+        L"文本与 Markdown 文件 (*.txt;*.md)|*.txt;*.md|TXT 文件 (*.txt)|*.txt|Markdown 文件 (*.md)|*.md|所有文件 (*.*)|*.*",
         wxFD_OPEN | wxFD_FILE_MUST_EXIST | wxFD_MULTIPLE
     );
 
@@ -2563,7 +2574,7 @@ void MyTreeCtrl::OnImportFolder(wxCommandEvent& event){
 //        return;
 //    }
 //    // 更新PATHS表中的NOTE_ID字段
-//    sqlite3_stmt* stmt;
+//    sqlite3_stmt* stmt = nullptr;
 //    const char* sql = "UPDATE PATHS SET NOTE_ID = ? WHERE ID = ?;";
 //    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
 //    if (rc != SQLITE_OK || sqlite3_bind_int(stmt, 1, noteID) != SQLITE_OK ||
@@ -2781,7 +2792,7 @@ bool MyTreeCtrl::ImportSingleNote(const wxTreeItemId& root, const wxString& file
         return false;
     }
     // 更新PATHS表中的NOTE_ID字段
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     const char* sql = "UPDATE PATHS SET NOTE_ID = ? WHERE ID = ?;";
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc == SQLITE_OK){
@@ -2831,7 +2842,7 @@ void MyTreeCtrl::RecursiveImportFolder(const wxTreeItemId& root, const wxString&
             if (newItemID == -1){
                 shouldRollback = true;
                 _wxLogError(L"无法在数据库中创建新文件夹。");
-                return;
+                break;
             }
             auto folderData = new MyTreeItemData(newItemID, parentID, name, order, TreeIcon::ICON_DEFAULT_FOLDER, -1, true, false, false);
             auto folderItem = AppendItem(parentItem, name, TreeIcon::ICON_DEFAULT_FOLDER, -1, folderData);
@@ -2839,7 +2850,7 @@ void MyTreeCtrl::RecursiveImportFolder(const wxTreeItemId& root, const wxString&
                 _wxLogError(L"无法创建树节点。");
                 shouldRollback = true;
                 delete folderData;
-                return;
+                break;
             }
 
             m_idToItem[newItemID] = folderItem;
@@ -2895,7 +2906,7 @@ bool MyTreeCtrl::UpdateNodeOrderForParent(sqlite3* db, wxTreeItemId parentItem){
     wxTreeItemId currentItem = GetFirstChild(parentItem, cookie);
     int order = 0;
     const char* sql = "UPDATE PATHS SET NODE_ORDER = ? WHERE ID = ?;";
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK){
         _wxLogError(wxT("SQL 预处理错误: %s, SQL: %s"), wxString::FromUTF8(sqlite3_errmsg(db)), wxString::FromUTF8(sql));
@@ -2934,7 +2945,7 @@ void MyTreeCtrl::PostEventToCardViewPanel(const wxTreeItemId& currentItem){
     auto cardList = new std::vector<CardData>();
     wxTreeItemIdValue cookie;
 
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     const char* sql = "SELECT CONTENT FROM NOTES WHERE ID = ?;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
         _wxLogError("SQL prepare failed: %s", sqlite3_errmsg(db));
@@ -3271,7 +3282,7 @@ wxTreeItemId MyTreeCtrl::TreeMoveItem(wxTreeItemId fromItem, wxTreeItemId toItem
 
     m_idToData[oldID]->SetParentID(newParentID);
     const char* sql = "UPDATE PATHS SET PARENT_ID = ? WHERE ID = ?;";
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK || sqlite3_bind_int(stmt, 1, tempData->GetParentID()) != SQLITE_OK ||
         sqlite3_bind_int(stmt, 2, tempData->GetID()) != SQLITE_OK || sqlite3_step(stmt) != SQLITE_DONE){
@@ -3285,7 +3296,7 @@ wxTreeItemId MyTreeCtrl::TreeMoveItem(wxTreeItemId fromItem, wxTreeItemId toItem
     if (flag == 2 || flag == 3){
         bool newTrashed = (flag == 2);
 
-        sqlite3_stmt* stmt;
+        sqlite3_stmt* stmt = nullptr;
         const char* sql = "UPDATE PATHS SET TRASHED = ? WHERE ID = ?;";
         int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
         if (rc != SQLITE_OK){
@@ -3311,7 +3322,7 @@ wxTreeItemId MyTreeCtrl::TreeMoveItem(wxTreeItemId fromItem, wxTreeItemId toItem
     }
     if (flag == 2 || flag == 4){
         //清除url字段
-        sqlite3_stmt* stmt;
+        sqlite3_stmt* stmt = nullptr;
         const char* sql = "UPDATE NOTES SET URL = NULL WHERE PATH_ID = ?;";
         int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
         if (rc != SQLITE_OK){

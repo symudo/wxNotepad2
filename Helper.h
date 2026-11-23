@@ -501,6 +501,7 @@ inline std::set<PathInfo> GetTextFilesAndDirs(const wxString& path, int& maxDept
 
     wxArrayString allFiles;
     dir.GetAllFiles(path, &allFiles, "*.txt", wxDIR_DEFAULT);
+    dir.GetAllFiles(path, &allFiles, "*.md", wxDIR_DEFAULT);
 
     for (const wxString& fullFilePath : allFiles) {
         wxFileName file(fullFilePath);
