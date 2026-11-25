@@ -797,12 +797,8 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
     m_hMainFrame = (HWND)this->GetHandle();
     // 窗口显示前预先套用主框架与容器主题（跳过已由子控件构造期完成的图标光栅化与样式刷新）
     ApplyTheme(GetMyAppInstance()->GetDarkMode(), true);
-    // 在窗口显示前选中上次节点并同步消费首屏内容加载事件，避免先弹出白屏再被大文件加载阻塞
+    // 选中上次节点（事件将在 ShowPreRendered 的 DWM Cloak 保护下且完成最终布局后同步消费，避免大文件二次换行重排）
     m_tree->SelectItem(m_tree->GetCurrentItem());
-    GetEventHandler()->ProcessPendingEvents();
-    if (m_cardViewPanel) {
-        m_cardViewPanel->GetEventHandler()->ProcessPendingEvents();
-    }
 
     m_autoSaveTimer.SetOwner(this, ID_TIMER_AUTOSAVE);
     RegisterGlobalHotkey();
@@ -1599,6 +1595,11 @@ void MainFrame::ShowPreRendered() {
 
     Show(true);
     Layout();
+    // 在窗口已确立最终尺寸且仍受 DWM Cloak 保护时同步加载首屏内容，避免大文件因尺寸变化触发二次自动换行
+    GetEventHandler()->ProcessPendingEvents();
+    if (m_cardViewPanel) {
+        m_cardViewPanel->GetEventHandler()->ProcessPendingEvents();
+    }
     if (hwnd) {
         ::SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
