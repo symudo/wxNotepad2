@@ -1,6 +1,7 @@
 #pragma once
 
 
+#include <string>
 #include <vector>
 #include <wx/event.h>
 #include <wx/menu.h>
@@ -53,7 +54,7 @@ public:
     void LoadCards(const std::vector<CardData>& cards);
     void ShowEmptyMessage();
     void ClearView();
-    void ApplyTheme(bool isDark);
+    void ApplyTheme(bool isDark, bool reloadCards = true);
     wxBitmapBundle m_folderIcon;
     wxBitmapBundle m_noteIcon;
 private:
@@ -62,6 +63,8 @@ private:
     wxStaticText* m_emptyMessageText;
     std::vector<MyCard*> m_cardList;
     std::vector<CardData> m_currentCards;
+    std::string m_cachedIconColor;
+    void EnsureCardIcons();
     void OnShowFolderContent(wxTreeEvent& event);
     void OnSize2(wxSizeEvent& event);
 };

@@ -217,7 +217,7 @@ bool MyApp::OnInit() {
     }
 
     //frame->InitUI();
-    frame->Show(true);
+    frame->ShowPreRendered();
 
     return true;
 }

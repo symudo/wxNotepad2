@@ -794,11 +794,17 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
 
     InitUI();
     InitBind();
-    //在这里设置tree节点的选择
+    m_hMainFrame = (HWND)this->GetHandle();
+    // 窗口显示前预先套用主框架与容器主题（跳过已由子控件构造期完成的图标光栅化与样式刷新）
+    ApplyTheme(GetMyAppInstance()->GetDarkMode(), true);
+    // 在窗口显示前选中上次节点并同步消费首屏内容加载事件，避免先弹出白屏再被大文件加载阻塞
     m_tree->SelectItem(m_tree->GetCurrentItem());
+    ProcessPendingEvents();
+    if (m_cardViewPanel) {
+        m_cardViewPanel->ProcessPendingEvents();
+    }
 
     m_autoSaveTimer.SetOwner(this, ID_TIMER_AUTOSAVE);
-    m_hMainFrame = (HWND)this->GetHandle();
     RegisterGlobalHotkey();
     //快捷键
     wxAcceleratorEntry entry[3];
@@ -808,7 +814,6 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
     wxAcceleratorTable accel(3, entry);
     SetAcceleratorTable(accel);
     m_server = new MongooseServer(this);
-    ApplyTheme(GetMyAppInstance()->GetDarkMode());
     CleanupClipboardTempFiles(3, 600);
 
     /*std::string html = "<html><body><h1>wxNotepad2 Server Running</h1></body></html>";
@@ -1454,6 +1459,35 @@ void MainFrame::OnSysColorChange2(wxSysColourChangedEvent& event) {
     event.Skip();
 }
 
+void MainFrame::ApplyToolBarTheme(bool isDark) {
+    wxToolBar* toolBar = GetToolBar();
+    if (!toolBar) return;
+    wxColour tbBg = isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary;
+    toolBar->SetBackgroundColour(tbBg);
+
+    HWND hwndTB = (HWND)toolBar->GetHWND();
+    if (hwndTB) {
+        ::SetWindowTheme(hwndTB, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
+        ::SendMessageW(hwndTB, WM_THEMECHANGED, 0, 0);
+    }
+
+    if (m_labelNav) {
+        m_labelNav->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
+        m_labelNav->SetBackgroundColour(tbBg);
+    }
+    if (m_Choice) {
+        HWND hwndChoice = (HWND)m_Choice->GetHWND();
+        if (hwndChoice) {
+            ::SetWindowTheme(hwndChoice, isDark ? L"DarkMode_CFD" : L"Explorer", NULL);
+            ::SendMessageW(hwndChoice, WM_THEMECHANGED, 0, 0);
+        }
+        m_Choice->SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
+        m_Choice->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
+        m_Choice->Refresh();
+    }
+    toolBar->Refresh();
+}
+
 void MainFrame::UpdateToolBarIcons() {
     wxToolBar* toolBar = GetToolBar();
     if (!toolBar) return;
@@ -1479,51 +1513,33 @@ void MainFrame::UpdateToolBarIcons() {
     toolBar->SetToolNormalBitmap(MENU_SEARCH_REPLACE, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_search, color, 73), Size_i));
     toolBar->SetToolNormalBitmap(MENU_FIND_SQL, wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_database_search, color, 73), Size_i));
 
-    bool isDark = GetMyAppInstance()->GetDarkMode();
-    wxColour tbBg = isDark ? ThemeColours::DarkBgSecondary : ThemeColours::LightBgSecondary;
-    toolBar->SetBackgroundColour(tbBg);
-
-    HWND hwndTB = (HWND)toolBar->GetHWND();
-    if (hwndTB) {
-        ::SetWindowTheme(hwndTB, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
-        ::SendMessageW(hwndTB, WM_THEMECHANGED, 0, 0);
-    }
-
-    if (m_labelNav) {
-        m_labelNav->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
-        m_labelNav->SetBackgroundColour(tbBg);
-    }
-    if (m_Choice) {
-        HWND hwndChoice = (HWND)m_Choice->GetHWND();
-        if (hwndChoice) {
-            ::SetWindowTheme(hwndChoice, isDark ? L"DarkMode_CFD" : L"Explorer", NULL);
-            ::SendMessageW(hwndChoice, WM_THEMECHANGED, 0, 0);
-        }
-        m_Choice->SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
-        m_Choice->SetForegroundColour(isDark ? ThemeColours::DarkTextPrimary : ThemeColours::LightTextPrimary);
-        m_Choice->Refresh();
-    }
+    ApplyToolBarTheme(GetMyAppInstance()->GetDarkMode());
     toolBar->Realize();
     toolBar->Refresh();
 }
 
-void MainFrame::ApplyTheme(bool isDark) {
-    auto app = GetMyAppInstance();
-    app->SetDarkMode(isDark);
+void MainFrame::ApplyTheme(bool isDark, bool isStartup) {
+    if (!isStartup) {
+        GetMyAppInstance()->SetDarkMode(isDark);
+    }
 
     // 1. 设置主窗口背景与标题栏 DWM 沉浸式暗色
     SetWindowDarkMode(m_hMainFrame, isDark);
     SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
 
-    // 2. 更新工具栏及图标与下拉框
-    UpdateToolBarIcons();
+    // 2. 更新工具栏及下拉框（启动阶段图标刚在 CreateMyToolBar 光栅化过，无需重复渲染）
+    if (isStartup) {
+        ApplyToolBarTheme(isDark);
+    } else {
+        UpdateToolBarIcons();
+    }
 
-    // 3. 树形控件主题与图标刷新
-    if (m_tree) {
+    // 3. 树形控件主题与图标刷新（构造期已完成则启动跳过）
+    if (m_tree && !isStartup) {
         m_tree->ApplyTheme(isDark);
     }
 
-    // 4. 编辑器与内嵌查找替换栏主题刷新
+    // 4. 编辑器容器与内嵌查找替换栏主题刷新（MySTC 构造期已完成则启动跳过）
     if (m_editorPage) {
         m_editorPage->SetBackgroundColour(isDark ? ThemeColours::DarkBgBase : ThemeColours::LightBgBase);
         m_editorPage->Refresh();
@@ -1531,13 +1547,13 @@ void MainFrame::ApplyTheme(bool isDark) {
     if (m_findBar) {
         m_findBar->ApplyTheme(isDark);
     }
-    if (m_scintilla) {
+    if (m_scintilla && !isStartup) {
         m_scintilla->ApplyTheme(isDark);
     }
 
-    // 5. 卡片视图刷新
+    // 5. 卡片视图刷新（启动时不空载光栅化卡片图标）
     if (m_cardViewPanel) {
-        m_cardViewPanel->ApplyTheme(isDark);
+        m_cardViewPanel->ApplyTheme(isDark, !isStartup);
     }
 
     // 6. 容器层（m_simplebook、m_splitter）
@@ -1557,16 +1573,43 @@ void MainFrame::ApplyTheme(bool isDark) {
         m_statusBar->Refresh();
     }
 
-    // 8. 顶层窗口刷新
-    if (m_hMainFrame) {
-        ::SendMessageW(m_hMainFrame, WM_THEMECHANGED, 0, 0);
-        ::SetWindowPos(m_hMainFrame, NULL, 0, 0, 0, 0,
-                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        ::RedrawWindow(m_hMainFrame, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME | RDW_UPDATENOW);
+    // 8. 顶层窗口刷新（启动期尚处于隐藏状态，由 ShowPreRendered 统一绘制首帧）
+    if (!isStartup) {
+        if (m_hMainFrame) {
+            ::SendMessageW(m_hMainFrame, WM_THEMECHANGED, 0, 0);
+            ::SetWindowPos(m_hMainFrame, NULL, 0, 0, 0, 0,
+                           SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            ::RedrawWindow(m_hMainFrame, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME | RDW_UPDATENOW);
+        }
+        Refresh();
+        Update();
+    }
+}
+
+void MainFrame::ShowPreRendered() {
+    HWND hwnd = m_hMainFrame ? m_hMainFrame : (HWND)GetHWND();
+    BOOL cloaked = FALSE;
+    if (hwnd) {
+        BOOL cloakVal = TRUE;
+        // 启用 DWM Cloak（DWMWA_CLOAK = 13），隐藏未画完的中间帧
+        if (SUCCEEDED(::DwmSetWindowAttribute(hwnd, 13, &cloakVal, sizeof(cloakVal)))) {
+            cloaked = TRUE;
+        }
     }
 
-    Refresh();
-    Update();
+    Show(true);
+    Layout();
+    if (hwnd) {
+        ::SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        ::RedrawWindow(hwnd, NULL, NULL,
+                       RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME | RDW_UPDATENOW);
+        if (cloaked) {
+            BOOL uncloakVal = FALSE;
+            ::DwmSetWindowAttribute(hwnd, 13, &uncloakVal, sizeof(uncloakVal));
+        }
+    }
+    Raise();
 }
 //TODO
 static inline picojson::value GetNoteResponseByUrl(sqlite3* db, const wxString& url) {
@@ -1941,7 +1984,7 @@ void MainFrame::OnEditTags(wxCommandEvent& event) {
     int type = m_tree->GetTreeItemType(selectedItem);
     if (type != MyTreeCtrl::FolderItemID && type != MyTreeCtrl::WebCollectionItemID)return;
     MyTreeItemData* data = static_cast<MyTreeItemData*>(this->m_tree->GetItemData(selectedItem));
-    if (data->IsFolder())return;
+    if (!data || data->IsFolder())return;
 
     sqlite3* db = GetMyAppInstance()->db;
     auto currentTaglist = m_tree->GetNoteTagList(db, data->GetID());

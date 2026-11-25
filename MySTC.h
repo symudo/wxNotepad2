@@ -120,6 +120,7 @@ private:
 
     bool m_updatingIndicators = false;
     bool m_updatingCustomFolding = false;
+    bool m_hasCustomFolding = false;
     bool m_isInitializing = true;
     bool m_hasCustomStyle = false;
     bool m_updateUiBound = false;

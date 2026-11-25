@@ -1969,7 +1969,7 @@ wxString MyTreeCtrl::MakePath(const wxTreeItemId& Id, const wxTreeItemId& rootId
     }
 
     wxString path;
-    for (size_t i = 0; i < pathParts.GetCount() - 1; ++i){
+    for (size_t i = 0; i + 1 < pathParts.GetCount(); ++i){
         path += pathParts[i];
         path += R"(/)";
     }

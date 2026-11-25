@@ -346,45 +346,44 @@ void MySTC::UpdateColorIndicators() {
         int r = onig_search(s_colorRegex, search_target, search_target_end, search_target + search_start, search_target_end, region, ONIG_OPTION_NONE);
 
         if (r >= 0 && region->num_regs > 0) {
-            /* int match_start_byte_offset = region->beg[0];
-             int match_end_byte_offset = region->end[0];*/
-            int match_start_byte_offset = ConvertBytePosToCharPos(text_wx, region->beg[0]);
-            int match_end_byte_offset = ConvertBytePosToCharPos(text_wx, region->end[0]);
-            int indicator_length = match_end_byte_offset - match_start_byte_offset;
-            // 确保匹配长度有效
-            if (indicator_length <= 0) {
-                _wxLogDebug("Zero-length match detected at offset %d", match_start_byte_offset);
-                search_start = region->end[0] + 1;
+            int match_start_byte = region->beg[0];
+            int match_end_byte = region->end[0];
+            int indicator_byte_len = match_end_byte - match_start_byte;
+            if (indicator_byte_len <= 0) {
+                _wxLogDebug("Zero-length match detected at byte offset %d", match_start_byte);
+                search_start = match_end_byte + 1;
                 continue;
             }
-            int indicator_start = startPos + match_start_byte_offset;
-            // 更改：添加范围验证
-            if (indicator_start < startPos || indicator_start + indicator_length > endPos) {
-                wxLogWarning("Indicator range out of bounds: start=%d, length=%d", indicator_start, indicator_length);
-                search_start = region->end[0] + 1;
+            int indicator_start = startPos + match_start_byte;
+            if (indicator_start < startPos || indicator_start + indicator_byte_len > endPos) {
+                wxLogWarning("Indicator range out of bounds: start=%d, length=%d", indicator_start, indicator_byte_len);
+                search_start = match_end_byte + 1;
                 continue;
             }
-            wxString matchedColorCode = text_wx.Mid(match_start_byte_offset, indicator_length);//这里使用字符偏移量
+            int match_start_char = ConvertBytePosToCharPos(text_wx, match_start_byte);
+            int match_end_char = ConvertBytePosToCharPos(text_wx, match_end_byte);
+            int char_len = match_end_char - match_start_char;
+            if (char_len <= 0) {
+                search_start = match_end_byte + 1;
+                continue;
+            }
+            wxString matchedColorCode = text_wx.Mid(match_start_char, char_len);
 
             wxColour color;
             if (color.Set(matchedColorCode)) {
-                // 将wxColour转换为RGB整数值
                 auto colorValue = static_cast<int>(color.GetRGBA());
-                indicator_start = startPos + region->beg[0];
-                //SetIndicatorCurrent(INDIC_COLOR_UNDERLINE);
-                //IndicatorFillRange(indicator_start, indicator_length);//直接使用oniguruma的返回值（字节偏移量）
 
                 SetIndicatorCurrent(INDIC_COLOR_FULLBOX);
                 SetIndicatorValue(colorValue);
-                IndicatorFillRange(indicator_start, indicator_length);
+                IndicatorFillRange(indicator_start, indicator_byte_len);
 
                 SetIndicatorCurrent(INDIC_COLOR_TEXTFORE);
-                SetIndicatorValue(colorValue);//设置不同的value可以防止同类型指示器粘连
-                IndicatorFillRange(indicator_start, indicator_length);
+                SetIndicatorValue(colorValue); // 设置不同的 value 可以防止同类型指示器粘连
+                IndicatorFillRange(indicator_start, indicator_byte_len);
             }
 
             // 下一次从匹配结束位置开始搜索
-            search_start = region->end[0];
+            search_start = match_end_byte;
         } else {
             if (r != ONIG_MISMATCH) {
                 _wxLogError("Oniguruma search error: %d", r);
@@ -397,81 +396,158 @@ void MySTC::UpdateColorIndicators() {
     //   m_updatingIndicators = false;
 }
 
-#define SetLineFoldLevel(line, level) \
-if(GetFoldLevel(line)!=level)SetFoldLevel(line,level)
+#define SCI_GETCHARACTERPOINTER 2520
 
 void MySTC::UpdateCustomFolding() {
     int lineCount = GetLineCount();
-    if (lineCount == 0) return;
+    int docLen = GetTextLength();
+    if (lineCount <= 0 || docLen <= 0) {
+        m_hasCustomFolding = false;
+        return;
+    }
 
+    const char* buf = reinterpret_cast<const char*>(SendMsg(SCI_GETCHARACTERPOINTER, 0, 0));
+    if (!buf) {
+        return;
+    }
+    const char* const end = buf + docLen;
+
+    // 快路径预检：零拷贝线性扫描每行首个非空格字符，若整篇文档不存在 '>' 标题行，直接跳过数十万次窗口消息
+    bool hasAnyTitle = false;
+    {
+        const char* p = buf;
+        while (p < end) {
+            while (p < end && *p == ' ') {
+                ++p;
+            }
+            if (p < end && *p == '>') {
+                hasAnyTitle = true;
+                break;
+            }
+            // 快速跳至行尾（先定位 \n，再仅在当前行内查 \r，确保纯 \n 文件也是严格 O(N)）
+            if (p < end && *p != '\n' && *p != '\r') {
+                const char* nl = static_cast<const char*>(memchr(p, '\n', static_cast<size_t>(end - p)));
+                size_t crSpan = nl ? static_cast<size_t>(nl - p) : static_cast<size_t>(end - p);
+                const char* cr = static_cast<const char*>(memchr(p, '\r', crSpan));
+                if (cr) {
+                    p = cr;
+                } else if (nl) {
+                    p = nl;
+                } else {
+                    p = end;
+                }
+            }
+            if (p < end) {
+                if (*p == '\r') {
+                    ++p;
+                    if (p < end && *p == '\n') ++p;
+                } else if (*p == '\n') {
+                    ++p;
+                }
+            }
+        }
+    }
+
+    if (!hasAnyTitle) {
+        if (!m_hasCustomFolding) {
+            return; // 文档原本就没有自定义折叠层级（如刚打开的纯文本大文件），0 次 SendMessage 直接返回
+        }
+        for (int i = 0; i < lineCount; ++i) {
+            if (GetFoldLevel(i) != wxSTC_FOLDLEVELBASE) {
+                SetFoldLevel(i, wxSTC_FOLDLEVELBASE);
+            }
+        }
+        m_hasCustomFolding = false;
+        return;
+    }
+
+    // 存在 '>' 标题行：在纯内存中一次性算完所有行的目标折叠级别，再最小化批量回写 Scintilla
+    std::vector<int> targetLevels(static_cast<size_t>(lineCount), wxSTC_FOLDLEVELBASE);
     m_headerStack.clear();
     m_pendingEmptyLines.clear();
 
+    const char* p = buf;
     for (int i = 0; i < lineCount; ++i) {
-        int pos = PositionFromLine(i);
-        int lineEndPos = GetLineEndPosition(i);
         int spaceCount = 0;
         bool isEmpty = true;
         bool curIsTitle = false;
 
-        // 1. 扫描行特征
-        while (pos < lineEndPos) {
-            char c = GetCharAt(pos);
-            if (c == ' ') spaceCount++;
-            else if (c == '>') { curIsTitle = true; isEmpty = false; break; } else { isEmpty = false; break; }
-            pos++;
+        while (p < end && *p == ' ') {
+            ++spaceCount;
+            ++p;
+        }
+        if (p < end && *p != '\r' && *p != '\n') {
+            isEmpty = false;
+            if (*p == '>') {
+                curIsTitle = true;
+            }
+        }
+        // 推进到下一行起始位置（严格 O(N)）
+        if (p < end && *p != '\n' && *p != '\r') {
+            const char* nl = static_cast<const char*>(memchr(p, '\n', static_cast<size_t>(end - p)));
+            size_t crSpan = nl ? static_cast<size_t>(nl - p) : static_cast<size_t>(end - p);
+            const char* cr = static_cast<const char*>(memchr(p, '\r', crSpan));
+            if (cr) {
+                p = cr;
+            } else if (nl) {
+                p = nl;
+            } else {
+                p = end;
+            }
+        }
+        if (p < end) {
+            if (*p == '\r') {
+                ++p;
+                if (p < end && *p == '\n') ++p;
+            } else if (*p == '\n') {
+                ++p;
+            }
         }
 
-        // 2. 处理空行
         if (isEmpty) {
             m_pendingEmptyLines.push_back(i);
             continue;
         }
 
-        // 3. 确定逻辑深度（解决问题 2 的关键）
-        int curLogicDepth = 0;
-
-        // 寻找当前行的父级标题
-        // 规则：父级标题的物理缩进必须严格小于当前行的物理缩进
         while (!m_headerStack.empty() && m_headerStack.back().depth >= spaceCount) {
             m_headerStack.pop_back();
         }
 
-        if (curIsTitle) {
-            // 如果是标题行
-            curLogicDepth = m_headerStack.empty() ? 0 : m_headerStack.back().depth + 1;
-        } else {
-            // 如果是内容行
-            curLogicDepth = m_headerStack.empty() ? 0 : m_headerStack.back().depth + 1;
-        }
+        int curLogicDepth = m_headerStack.empty() ? 0 : (m_headerStack.back().depth + 1);
 
-        //  判定并设置折叠标记与空行层级
         if (!m_headerStack.empty() && curLogicDepth > m_headerStack.back().depth) {
-            // 确认父标题为 Header
             int topRow = m_headerStack.back().line;
-            SetLineFoldLevel(topRow, GetFoldLevel(topRow) | wxSTC_FOLDLEVELHEADERFLAG);
-
-            for (int lineIdx : m_pendingEmptyLines) {
-                SetLineFoldLevel(lineIdx, wxSTC_FOLDLEVELBASE + curLogicDepth);
-            }
-        } else {
-            // 如果不构成包含关系（例如新标题比上一个标题浅，或者回到了顶级）
-            // 空行层级跟随当前行的逻辑深度
-            for (int lineIdx : m_pendingEmptyLines) {
-                SetLineFoldLevel(lineIdx, wxSTC_FOLDLEVELBASE + curLogicDepth);
-            }
+            targetLevels[static_cast<size_t>(topRow)] |= wxSTC_FOLDLEVELHEADERFLAG;
+        }
+        for (int lineIdx : m_pendingEmptyLines) {
+            targetLevels[static_cast<size_t>(lineIdx)] = wxSTC_FOLDLEVELBASE + curLogicDepth;
         }
         m_pendingEmptyLines.clear();
 
-        // 设置当前行并入栈
-        SetLineFoldLevel(i, wxSTC_FOLDLEVELBASE + curLogicDepth);
+        targetLevels[static_cast<size_t>(i)] = wxSTC_FOLDLEVELBASE + curLogicDepth;
         if (curIsTitle) {
-            // 入栈时记录其实际物理缩进，作为后续行的判定依据
             m_headerStack.push_back({ i, spaceCount });
         }
     }
+
+    if (!m_hasCustomFolding) {
+        // 初始状态全为 wxSTC_FOLDLEVELBASE，仅对有变化的少数行发 SetFoldLevel
+        for (int i = 0; i < lineCount; ++i) {
+            int lvl = targetLevels[static_cast<size_t>(i)];
+            if (lvl != wxSTC_FOLDLEVELBASE) {
+                SetFoldLevel(i, lvl);
+            }
+        }
+    } else {
+        for (int i = 0; i < lineCount; ++i) {
+            int lvl = targetLevels[static_cast<size_t>(i)];
+            if (GetFoldLevel(i) != lvl) {
+                SetFoldLevel(i, lvl);
+            }
+        }
+    }
+    m_hasCustomFolding = true;
 }
-#undef SetLineFoldLevel
 
 typedef struct {
     int cpMin; // 搜索的起始位置 (startPos)
@@ -903,6 +979,7 @@ void MySTC::OnKeyUp(wxKeyEvent& event) {
 void MySTC::OnUpdatingTimer(wxTimerEvent& event) {
     m_updatingIndicators = true;
     m_updatingCustomFolding = true;
+    UpdateRegionIndicators();
 }
 
 void MySTC::RemoveEmptyLines() {
@@ -1398,6 +1475,7 @@ void MySTC::LoadContent(wxString& content, int state, std::vector<uint32_t>& sty
     //m_currentType = stateIcon;
     ClearAll();
     m_hasCustomStyle = false;
+    m_hasCustomFolding = false;
     SetText(content);
     SetStyleData(styles);
     EmptyUndoBuffer();
@@ -1448,12 +1526,12 @@ void MySTC::OnStcModified(wxStyledTextEvent& event) {
     //    SC_MOD_CHANGESTYLE 和 SC_MOD_CHANGEINDICATOR 应该被忽略，因为它们是内部操作。
     if (modType & (wxSTC_MOD_INSERTTEXT | wxSTC_MOD_DELETETEXT)) {
         UpdateLineNumberMarginWidth(false);
-        /*m_updatingIndicators = true;
-        m_updatingCustomFolding = true;*/
-        m_updatingTimer->Start(300, wxTIMER_ONE_SHOT);
-        // 只有在文本发生变化时才修改 TreeCtrl 节点名称并调度实时保存
-        if (!GetReadOnly() && !m_isInitializing && GetModify()) {
-            MarkCurrentNoteModified();
+        if (!m_isInitializing) {
+            m_updatingTimer->Start(300, wxTIMER_ONE_SHOT);
+            // 只有在文本发生变化时才修改 TreeCtrl 节点名称并调度实时保存
+            if (!GetReadOnly() && GetModify()) {
+                MarkCurrentNoteModified();
+            }
         }
     }
 
@@ -1912,7 +1990,7 @@ void ImagePreviewPopup::OnImageLoaded(wxThreadEvent& event) {
         _wxLogMessage(L"图片读取完成并加入至缓存: %s", loadedPath);
         AddToCache(loadedPath, img);
     }
-    if (loadedPath == m_targetPath && !m_targetPath.IsEmpty()) {
+    if (img.IsOk() && loadedPath == m_targetPath && !m_targetPath.IsEmpty()) {
         wxBitmap bmp(img);
         m_bitmap->SetBitmap(bmp);
         this->Layout();

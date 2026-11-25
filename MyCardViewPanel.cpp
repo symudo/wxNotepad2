@@ -18,9 +18,6 @@ MyCard::MyCard(wxWindow* parent, const CardData& data, wxWindowID id)
     wxColour primaryTextColor; // 标题、主要内容文字色
     wxColour secondaryTextColor; // 日期、信息等次要文字色
 
-    char buff[4096];
-    auto color = GetMyAppInstance()->GetThemeColor();
-
     if (GetMyAppInstance()->GetDarkMode()){
         bgColor = DARK_BG_BASE;
         titleBgColor = DARK_BG_ACCENT_GREEN;
@@ -167,14 +164,24 @@ MyCardViewPanel::~MyCardViewPanel(){
     m_cardList.clear();
 }
 
+void MyCardViewPanel::EnsureCardIcons(){
+    const char* color = GetMyAppInstance()->GetThemeColor();
+    std::string colorStr = color ? color : "";
+    if (!m_folderIcon.IsOk() || !m_noteIcon.IsOk() || m_cachedIconColor != colorStr) {
+        char buff[4096];
+        m_folderIcon = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_default_folder, color, 73), wxSize(24, 24));
+        m_noteIcon = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_default_note, color, 73), wxSize(24, 24));
+        m_cachedIconColor = colorStr;
+    }
+}
+
 void MyCardViewPanel::LoadCards(const std::vector<CardData>& cards){
     m_currentCards = cards;
     Freeze();
 
-    auto color = GetMyAppInstance()->GetThemeColor();
-    char buff[4096];
-    m_folderIcon = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_default_folder, color, 73), wxSize(24, 24));
-    m_noteIcon = wxBitmapBundle::FromSVG(ChangeSVGColor(buff, icon_default_note, color, 73), wxSize(24, 24));
+    if (!cards.empty()) {
+        EnsureCardIcons();
+    }
     // 销毁旧卡片
     for (MyCard* card : m_cardList){
         card->Destroy();
@@ -217,7 +224,7 @@ void MyCardViewPanel::ClearView(){
     Refresh();
 }
 
-void MyCardViewPanel::ApplyTheme(bool isDark) {
+void MyCardViewPanel::ApplyTheme(bool isDark, bool reloadCards) {
     HWND hwndPanel = (HWND)GetHWND();
     if (hwndPanel) {
         ::SetWindowTheme(hwndPanel, isDark ? L"DarkMode_Explorer" : L"Explorer", NULL);
@@ -227,7 +234,10 @@ void MyCardViewPanel::ApplyTheme(bool isDark) {
     if (m_emptyMessageText) {
         m_emptyMessageText->SetForegroundColour(isDark ? ThemeColours::DarkTextSecondary : wxColour(128, 128, 128));
     }
-    LoadCards(m_currentCards);
+    m_cachedIconColor.clear();
+    if (reloadCards && !m_currentCards.empty()) {
+        LoadCards(m_currentCards);
+    }
 }
 
 void MyCardViewPanel::OnShowFolderContent(wxTreeEvent& event){
@@ -235,7 +245,9 @@ void MyCardViewPanel::OnShowFolderContent(wxTreeEvent& event){
 
     if (!cardList) return;
 
-    auto item1 = static_cast<MainFrame*>(wxGetTopLevelParent(this))->m_tree->GetSelection();
+    auto* mf = static_cast<MainFrame*>(wxGetTopLevelParent(this));
+    if (!mf || !mf->m_tree) return;
+    auto item1 = mf->m_tree->GetSelection();
     auto item2 = event.GetItem();
     if (item1 == item2){
         LoadCards(*cardList);

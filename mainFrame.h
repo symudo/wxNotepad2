@@ -201,8 +201,10 @@ public:
         ID_ScintillaPage,
     };
 
-    void ApplyTheme(bool isDark);
+    void ApplyTheme(bool isDark, bool isStartup = false);
+    void ApplyToolBarTheme(bool isDark);
     void UpdateToolBarIcons();
+    void ShowPreRendered();
 
 private:
     wxSplitterWindow* m_splitter;
