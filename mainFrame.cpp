@@ -799,9 +799,9 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
     ApplyTheme(GetMyAppInstance()->GetDarkMode(), true);
     // 在窗口显示前选中上次节点并同步消费首屏内容加载事件，避免先弹出白屏再被大文件加载阻塞
     m_tree->SelectItem(m_tree->GetCurrentItem());
-    ProcessPendingEvents();
+    GetEventHandler()->ProcessPendingEvents();
     if (m_cardViewPanel) {
-        m_cardViewPanel->ProcessPendingEvents();
+        m_cardViewPanel->GetEventHandler()->ProcessPendingEvents();
     }
 
     m_autoSaveTimer.SetOwner(this, ID_TIMER_AUTOSAVE);
