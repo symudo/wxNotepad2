@@ -31,6 +31,16 @@ bool MyApp::OnInit() {
     if (!wxApp::OnInit())
         return false;
 
+    // 若由重启拉起，先等待旧进程完全退出并释放 SQLite 锁、全局热键与单实例互斥量，避免新旧进程并发竞态
+    if (m_waitParentPid > 0) {
+        HANDLE hOldProc = ::OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(m_waitParentPid));
+        if (hOldProc) {
+            ::WaitForSingleObject(hOldProc, 5000);
+            ::CloseHandle(hOldProc);
+        }
+        m_waitParentPid = 0;
+    }
+
     //单实例限制
     m_singleInstanceChecker = new wxSingleInstanceChecker(L"wxNotePad2");
     if (m_singleInstanceChecker->IsAnotherRunning()) {
@@ -103,6 +113,8 @@ bool MyApp::OnInit() {
         }
         return false;
     }
+    // 设置 5 秒锁等待超时，避免短暂文件/WAL 锁冲突导致 SQLITE_BUSY 直接退出
+    sqlite3_busy_timeout(db, 5000);
     rc = sqlite3_db_config(db, SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, 1, NULL);
     if (rc != SQLITE_OK) {
         fprintf(stderr, "Failed to enable extension loading: %s\n", sqlite3_errmsg(db));
@@ -236,11 +248,16 @@ void MyApp::OnInitCmdLine(wxCmdLineParser& parser) {
     wxApp::OnInitCmdLine(parser);
     parser.AddSwitch("o", "open", L"手动选择数据库文件");
     parser.AddOption("d", "db", L"直接指定wxNotePad.db路径", wxCMD_LINE_VAL_STRING);
+    parser.AddOption("", "wait-pid", L"重启时等待旧进程退出", wxCMD_LINE_VAL_NUMBER);
 
 }
 
 bool MyApp::OnCmdLineParsed(wxCmdLineParser& parser) {
     if (!wxApp::OnCmdLineParsed(parser))return false;
+    long waitPid = 0;
+    if (parser.Found("wait-pid", &waitPid) && waitPid > 0) {
+        m_waitParentPid = static_cast<unsigned long>(waitPid);
+    }
     wxString providedPath;
     if (parser.Found("d", &providedPath)) {
         wxFileName fn(providedPath);
@@ -275,10 +292,28 @@ void MyApp::DelSingleInstanceChecker() {
     }
 }
 
+void MyApp::EnsureSingleInstanceChecker() {
+    if (!m_singleInstanceChecker) {
+        m_singleInstanceChecker = new wxSingleInstanceChecker(L"wxNotePad2");
+    }
+}
+
 const wxString MyApp::GetOriginalArgs() const {
+    // 若通过 -o 手动选择了外部数据库，重启时直接改传 -d "<DBFilePath>"，避免反复弹窗重选
+    if (m_useExternalDB && !DBFilePath.IsEmpty()) {
+        return wxString::Format(L" -d \"%s\"", DBFilePath);
+    }
     wxString args;
     for (int i = 1; i < wxTheApp->argc; i++) {
         wxString arg = wxTheApp->argv[i];
+        // 过滤内部重启交接参数，防止多次连续重启导致参数重复累积或解析报错
+        if (arg == L"--wait-pid") {
+            ++i;
+            continue;
+        }
+        if (arg.StartsWith(L"--wait-pid=")) {
+            continue;
+        }
         if (arg.Contains(L" ")) {
             args += wxString::Format(L" \"%s\"", arg);
         } else {

@@ -35,6 +35,10 @@ MyTreeCtrl::~MyTreeCtrl(){
         }
     }
     sqlite3* db = GetMyAppInstance()->db;
+    if (!db){
+        delete m_imageListTreeCtrl;
+        return;
+    }
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
 
     int rc = sqlite3_exec(db, "UPDATE PATHS SET TYPE = TYPE &~6;", nullptr, nullptr, nullptr);
@@ -2111,6 +2115,10 @@ void MyTreeCtrl::OnEmptyRecycleBin(wxCommandEvent& event){
     }
 
     sqlite3* db = GetMyAppInstance()->db;
+    if (!db){
+        delete m_imageListTreeCtrl;
+        return;
+    }
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
     std::vector<int> itemsToDelete;
     const char* sql = "DELETE FROM PATHS WHERE TRASHED = 1 RETURNING ID;";
@@ -2151,6 +2159,10 @@ void MyTreeCtrl::OnDeleteItem(wxCommandEvent& event){
     if (itemData == nullptr || !itemData->IsTrashed())
         return;
     sqlite3* db = GetMyAppInstance()->db;
+    if (!db){
+        delete m_imageListTreeCtrl;
+        return;
+    }
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
     DeleteItemAndData(db, item);
     sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
@@ -2396,6 +2408,10 @@ bool MyTreeCtrl::CreateNoteWithContent(const wxString& initialTitle, const wxStr
 
 void MyTreeCtrl::OnNewTag(wxCommandEvent& event){
     sqlite3* db = GetMyAppInstance()->db;
+    if (!db){
+        delete m_imageListTreeCtrl;
+        return;
+    }
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
 
     wxString baseName = L"新标签";
@@ -3110,6 +3126,10 @@ wxTreeItemId MyTreeCtrl::FindOrCreateWebCollectionNote(const wxTreeItemId& paren
     }
     //没找到，新建节点
     sqlite3* db = GetMyAppInstance()->db;
+    if (!db){
+        delete m_imageListTreeCtrl;
+        return;
+    }
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
     auto parentData = static_cast<MyTreeItemData*>(GetItemData(parentItem));
     int order = GetChildrenCount(parentItem);

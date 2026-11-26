@@ -94,10 +94,12 @@ public:
     void RenameCurrentItem(wxString& newName);
     void OnMyCardViewPanelDClick(wxCommandEvent& event){
         wxTreeItemId* itemPtr = static_cast<wxTreeItemId*>(event.GetClientData());
-        if (itemPtr && itemPtr->IsOk()){
+        if (itemPtr){
             wxTreeItemId item = *itemPtr;
-            SelectItem(item);
             delete itemPtr;
+            if (item.IsOk()){
+                SelectItem(item);
+            }
         }
         event.Skip();
     }

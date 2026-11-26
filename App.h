@@ -3,7 +3,7 @@
 #define _APP_H_
 #define MAJOR_VERSION 2
 #define MINOR_VERSION 0
-#define RELEASE_NUMBER 15
+#define RELEASE_NUMBER 16
 
 #include <mutex>
 #include <wx/snglinst.h>
@@ -59,11 +59,13 @@ public:
 
     //重启功能使用
     void DelSingleInstanceChecker();
+    void EnsureSingleInstanceChecker();
     const wxString GetOriginalArgs()const;
 
     sqlite3* db = nullptr;
 private:
     wxSingleInstanceChecker* m_singleInstanceChecker = nullptr; // 单例检查器
+    unsigned long m_waitParentPid = 0; // 重启时等待退出的旧进程 PID
     wxString DBFilePath; // 当前数据库文件路径
     wxString ConfigFilePath; // 配置文件路径
     wxString PortableImagesFold = wxEmptyString;

@@ -1085,20 +1085,37 @@ void MainFrame::OnExit() {
 }
 
 void MainFrame::OnRestart() {
-    // 先落盘未保存笔记与配置再启动新进程，避免新旧进程读写配置/数据库竞态
+    // 先落盘未保存笔记与配置、停止服务并释放热键，避免新旧进程资源冲突
     PersistStateBeforeExit();
     if (m_server) {
         m_server->Stop();
     }
-    // 可执行文件路径加双引号包裹，防止目录含空格（如 Program Files）导致重启失败
-    wxString exePath = wxString::Format(L"\"%s\"%s",
-        wxStandardPaths::Get().GetExecutablePath(),
-        GetMyAppInstance()->GetOriginalArgs());
+    UnregisterGlobalHotKey();
+
+    wxString exeFile = wxStandardPaths::Get().GetExecutablePath();
+    std::wstring appPath = exeFile.ToStdWstring();
+    std::wstring cmdLine = wxString::Format(L"\"%s\"%s --wait-pid %lu",
+        exeFile,
+        GetMyAppInstance()->GetOriginalArgs(),
+        static_cast<unsigned long>(::GetCurrentProcessId())).ToStdWstring();
+    std::vector<wchar_t> cmdBuf(cmdLine.begin(), cmdLine.end());
+    cmdBuf.push_back(L'\0');
+
     GetMyAppInstance()->DelSingleInstanceChecker();
-    if (wxExecute(exePath)) {
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    // 使用原生 CreateProcessW 且 bInheritHandles=FALSE，确保新进程绝不继承旧进程的数据库/互斥量句柄
+    if (::CreateProcessW(appPath.c_str(), cmdBuf.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        ::CloseHandle(pi.hProcess);
+        ::CloseHandle(pi.hThread);
         Destroy();
     } else {
+        GetMyAppInstance()->EnsureSingleInstanceChecker();
+        RegisterGlobalHotkey();
         _wxLogError(L"重启失败");
+        wxMessageBox(L"启动新实例失败，请手动重新打开软件。", L"重启失败", wxOK | wxICON_ERROR, this);
     }
 }
 
