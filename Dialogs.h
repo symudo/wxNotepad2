@@ -98,7 +98,7 @@ public:
 
         wxString versionText = wxString::Format(
             L"wxNotepad2 v%d.%d.%d\n"
-            L"Copyright © 2025-2026 ibulis\n"
+            L"Copyright © 2025-2026 六月的雨\n"
             , MAJOR_VERSION, MINOR_VERSION, RELEASE_NUMBER);
 
         IconSizer->Add(new wxStaticText(this, wxID_ANY, versionText), 0, wxALL, 0);
