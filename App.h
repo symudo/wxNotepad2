@@ -3,7 +3,7 @@
 #define _APP_H_
 #define MAJOR_VERSION 2
 #define MINOR_VERSION 0
-#define RELEASE_NUMBER 18
+#define RELEASE_NUMBER 19
 
 #include <mutex>
 #include <wx/snglinst.h>

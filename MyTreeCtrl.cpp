@@ -1780,6 +1780,7 @@ void MyTreeCtrl::OnItemMenu(wxTreeEvent& event){
         menu.AppendSeparator();
 
         auto itemData = static_cast<MyTreeItemData*>(GetItemData(clickedItem));
+        if (!itemData) break;
         if (!itemData->IsFolder()){
             iconStyleMenu->Insert(1, MainFrame::MENU_ICON_CHANGE_STYLE_BASE, L"着色笔记");
             iconStyleMenu->Append(MainFrame::MENU_ICON_CHANGE_STYLE_BASE + 11, L"锁定");
@@ -1796,12 +1797,12 @@ void MyTreeCtrl::OnItemMenu(wxTreeEvent& event){
             for (const auto& [tagID, tagName] : m_TagsList){
                 if (currentTagIDs.count(tagID)){
                     wxMenuItem* menuItem = removeTagMenu->Append(wxID_ANY, tagName);
-                    Bind(wxEVT_MENU, [this, clickedItem, tagID](wxCommandEvent&){
+                    menu.Bind(wxEVT_MENU, [this, clickedItem, tagID](wxCommandEvent&){
                         this->RemoveTagForNote(clickedItem, tagID);
                         }, menuItem->GetId());
                 } else{
                     wxMenuItem* menuItem = addTagMenu->Append(wxID_ANY, tagName);
-                    Bind(wxEVT_MENU, [this, clickedItem, tagID](wxCommandEvent&){
+                    menu.Bind(wxEVT_MENU, [this, clickedItem, tagID](wxCommandEvent&){
                         this->AddTagForNote(clickedItem, tagID);
                         }, menuItem->GetId());
                 }
@@ -1870,6 +1871,7 @@ void MyTreeCtrl::OnItemMenu(wxTreeEvent& event){
         menu.Append(MainFrame::MENU_MOVE_TO_RECYCLE_BIN, L"移动到回收站");
         menu.AppendSeparator();
         auto itemData = static_cast<MyTreeItemData*>(GetItemData(clickedItem));
+        if (!itemData) break;
         if (!itemData->IsFolder()){
             auto addTagMenu = new wxMenu();
             auto removeTagMenu = new wxMenu();
@@ -1884,12 +1886,12 @@ void MyTreeCtrl::OnItemMenu(wxTreeEvent& event){
             for (const auto& [tagID, tagName] : m_TagsList){
                 if (currentTagIDs.count(tagID)){
                     wxMenuItem* menuItem = removeTagMenu->Append(wxID_ANY, tagName);
-                    Bind(wxEVT_MENU, [this, clickedItem, tagID](wxCommandEvent&){
+                    menu.Bind(wxEVT_MENU, [this, clickedItem, tagID](wxCommandEvent&){
                         this->RemoveTagForNote(clickedItem, tagID);
                         }, menuItem->GetId());
                 } else{
                     wxMenuItem* menuItem = addTagMenu->Append(wxID_ANY, tagName);
-                    Bind(wxEVT_MENU, [this, clickedItem, tagID](wxCommandEvent&){
+                    menu.Bind(wxEVT_MENU, [this, clickedItem, tagID](wxCommandEvent&){
                         this->AddTagForNote(clickedItem, tagID);
                         }, menuItem->GetId());
                 }
@@ -2634,11 +2636,19 @@ void MyTreeCtrl::OnHideRecent(wxCommandEvent& event){
 void MyTreeCtrl::OnChangeIconStyle(wxCommandEvent& event){
     int id = event.GetId();
     auto item = GetSelection();
+    if (!item.IsOk()) return;
     auto itemData = static_cast<MyTreeItemData*>(GetItemData(item));
+    if (!itemData) return;
     sqlite3* db = GetMyAppInstance()->db;
     if (id == MainFrame::MENU_ICON_CHANGE_STYLE_RESTORE){
-        itemData->SetStateIcon(itemData->IsFolder());
+        itemData->SetStateIcon(itemData->IsFolder() ? 1 : 0);
         SetItemImage(item, itemData->GetStateIcon());
+        // 恢复默认图标时同步解除此前“锁定”样式设置的只读状态
+        if (!itemData->IsFolder() && m_mainFrame && m_mainFrame->m_scintilla &&
+            m_mainFrame->GetCurrentSimplebookPageID() == MainFrame::ID_ScintillaPage &&
+            GetTreeItemType(item) != TrashItemID) {
+            m_mainFrame->m_scintilla->SetReadOnly(false);
+        }
         UpdateStateIcon(db, item);
         return;
     }
@@ -2647,9 +2657,9 @@ void MyTreeCtrl::OnChangeIconStyle(wxCommandEvent& event){
     //修改过样式
     if (stateicon & 0x80){
         //覆写样式位
-        itemData->SetStateIcon(stateicon & ~0xF | newStyle);
+        itemData->SetStateIcon((stateicon & ~0xF) | newStyle);
     } else{
-        itemData->SetStateIcon(0x80 | 6 << 4 | newStyle);
+        itemData->SetStateIcon(0x80 | (6 << 4) | newStyle);
     }
     SetItemImage(item, GetIconIndex(itemData->GetStateIcon()));
     //在这里手动发送一个事件通知stc切换可写状态
@@ -2667,14 +2677,16 @@ void MyTreeCtrl::OnChangeIconStyle(wxCommandEvent& event){
 void MyTreeCtrl::OnChangeIconColor(wxCommandEvent& event){
     int id = event.GetId() - MainFrame::MENU_ICON_CHANGE_COLOR_BASE;
     auto item = GetSelection();
+    if (!item.IsOk()) return;
     auto itemData = static_cast<MyTreeItemData*>(GetItemData(item));
+    if (!itemData) return;
     sqlite3* db = GetMyAppInstance()->db;
     auto stateicon = itemData->GetStateIcon();
     //修改过样式
     if (stateicon & 0x80){
-        itemData->SetStateIcon(stateicon & ~0x70 | (id << 4));
+        itemData->SetStateIcon((stateicon & ~0x70) | (id << 4));
     } else{
-        itemData->SetStateIcon(0x80 | id << 4 | itemData->IsFolder());
+        itemData->SetStateIcon(0x80 | (id << 4) | (itemData->IsFolder() ? 1 : 0));
     }
     SetItemImage(item, GetIconIndex(itemData->GetStateIcon()));
     UpdateStateIcon(db, item);
@@ -2765,7 +2777,11 @@ inline static wxString ReadFileContentWithEncoding(const wxString& filePath){
     wxString content(rawBuffer + bomOffset, *convToUse, static_cast<size_t>(len - bomOffset));
 
     if (content.IsEmpty() && len > 0){
-        content = wxString(rawBuffer, wxConvISO8859_1, static_cast<size_t>(len));
+        // 非 UTF-8 无 BOM 文件优先按系统本地编码（如中文 Windows GBK）解码，失败再回退 ISO-8859-1
+        content = wxString(rawBuffer, wxConvLocal, static_cast<size_t>(len));
+        if (content.IsEmpty()) {
+            content = wxString(rawBuffer, wxConvISO8859_1, static_cast<size_t>(len));
+        }
     }
 
     free(rawBuffer);
@@ -2823,11 +2839,13 @@ bool MyTreeCtrl::ImportSingleNote(const wxTreeItemId& root, const wxString& file
 }
 
 void MyTreeCtrl::RecursiveImportFolder(const wxTreeItemId& root, const wxString& currentFolderPath){
+    if (!root.IsOk()) return;
+    auto rootData = static_cast<MyTreeItemData*>(GetItemData(root));
+    if (!rootData) return;
     int maxDepth;
     auto Paths = GetTextFilesAndDirs(currentFolderPath, maxDepth);
     //用于储存当前节点层级的数组
     std::vector<int> folderIndex(maxDepth + 1, 0);
-    auto rootData = static_cast<MyTreeItemData*>(GetItemData(root));
     folderIndex[0] = rootData->GetID();
 
     sqlite3* db = GetMyAppInstance()->db;
