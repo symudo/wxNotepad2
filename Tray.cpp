@@ -1,17 +1,24 @@
 #include "pch.h"
 
 #include "App.h"
+#include "Helper.h"
 #include "mainFrame.h"
 #include "Tray.h"
 
 MyTrayIcon::MyTrayIcon(MainFrame* frame): m_frame(frame), wxTaskBarIcon(){
-    wxIconBundle appIcons(wxT("MAINICON"), wxBITMAP_TYPE_ICO_RESOURCE);
-    if (!appIcons.IsEmpty()){
-        int smW = ::GetSystemMetrics(SM_CXSMICON);
-        int smH = ::GetSystemMetrics(SM_CYSMICON);
-        wxIcon trayIcon = appIcons.GetIcon(wxSize(smW > 0 ? smW : 16, smH > 0 ? smH : 16));
+    int smW = ::GetSystemMetrics(SM_CXSMICON);
+    int smH = ::GetSystemMetrics(SM_CYSMICON);
+    if (smW <= 0) smW = 16;
+    if (smH <= 0) smH = 16;
+    HICON hTrayIcon = static_cast<HICON>(::LoadImageW(
+        wxGetInstance(), L"MAINICON", IMAGE_ICON, smW, smH, LR_DEFAULTCOLOR));
+    if (hTrayIcon){
+        wxIcon trayIcon;
+        trayIcon.CreateFromHICON(hTrayIcon);
         if (trayIcon.IsOk()){
             SetIcon(trayIcon, L"wxNotepad2");
+        } else {
+            ::DestroyIcon(hTrayIcon);
         }
     }
     Bind(wxEVT_TASKBAR_LEFT_DCLICK, [this](wxTaskBarIconEvent&){m_frame->Show(true); m_frame->Iconize(false); SetForegroundWindow((HWND)m_frame->GetHandle()); });

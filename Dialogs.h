@@ -88,7 +88,7 @@ private:
 class AboutDialog : public wxDialog {
 public:
     AboutDialog(MainFrame* parent) :wxDialog((wxFrame*)parent, wxID_ANY, L"关于", wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE) {
-        wxIconBundle appIcons(L"MAINICON", wxBITMAP_TYPE_ICO_RESOURCE);
+        wxIconBundle appIcons = LoadAppIconBundle();
         wxIcon appIcon = appIcons.GetIcon(wxSize(FromDIP(48), FromDIP(48)));
         wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
         wxBoxSizer* IconSizer = new wxBoxSizer(wxHORIZONTAL);

@@ -794,7 +794,7 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
     //剪贴板监听黑名单
     SetClipboardBlackList();
 
-    wxIconBundle appIcons(wxT("MAINICON"), wxBITMAP_TYPE_ICO_RESOURCE);
+    wxIconBundle appIcons = LoadAppIconBundle();
     if (!appIcons.IsEmpty()) {
         SetIcons(appIcons);
     }

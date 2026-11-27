@@ -22,6 +22,26 @@
 #include <wx/fileconf.h>
 #include <wx/app.h>
 #include "App.h"
+#include <wx/iconbndl.h>
+
+inline wxIconBundle LoadAppIconBundle() {
+    wxIconBundle bundle;
+    HINSTANCE hInst = wxGetInstance();
+    for (int sz : { 16, 24, 32, 48, 64, 128, 256 }) {
+        HICON hIcon = static_cast<HICON>(::LoadImageW(
+            hInst, L"MAINICON", IMAGE_ICON, sz, sz, LR_DEFAULTCOLOR));
+        if (hIcon) {
+            wxIcon ic;
+            ic.CreateFromHICON(hIcon);
+            if (ic.IsOk()) {
+                bundle.AddIcon(ic);
+            } else {
+                ::DestroyIcon(hIcon);
+            }
+        }
+    }
+    return bundle;
+}
 
 inline bool IsWindowsSystemDarkMode() {
     DWORD value = 1;
@@ -231,6 +251,26 @@ inline wxColour GetInvertedColour(const wxColour& colour) {
     }
 }
 #include "App.h"
+#include <wx/iconbndl.h>
+
+inline wxIconBundle LoadAppIconBundle() {
+    wxIconBundle bundle;
+    HINSTANCE hInst = wxGetInstance();
+    for (int sz : { 16, 24, 32, 48, 64, 128, 256 }) {
+        HICON hIcon = static_cast<HICON>(::LoadImageW(
+            hInst, L"MAINICON", IMAGE_ICON, sz, sz, LR_DEFAULTCOLOR));
+        if (hIcon) {
+            wxIcon ic;
+            ic.CreateFromHICON(hIcon);
+            if (ic.IsOk()) {
+                bundle.AddIcon(ic);
+            } else {
+                ::DestroyIcon(hIcon);
+            }
+        }
+    }
+    return bundle;
+}
 inline wxFont ReadFontFromConfig() {
     auto App = static_cast<MyApp*>(wxTheApp);
     wxFileConfig config{ wxEmptyString,wxEmptyString,App->GetConfigFilePath(), wxEmptyString, wxCONFIG_USE_LOCAL_FILE };
