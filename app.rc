@@ -6,7 +6,7 @@
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
 LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
-#pragma code_page(936)
+#pragma code_page(65001)
 
 
 
@@ -60,11 +60,11 @@ BEGIN
     BEGIN
         BLOCK "080404b0"
         BEGIN
-            VALUE "CompanyName", "ibulis"
-            VALUE "FileDescription", "wxNotepad2 - A simple notepad"
+            VALUE "CompanyName", "六月的雨"
+            VALUE "FileDescription", "wxNotepad2 - 简洁高效的笔记软件"
             VALUE "FileVersion", "2.0.19"
             VALUE "InternalName", "wxNotepad2"
-            VALUE "LegalCopyright", "Copyright (C) 2025-2026 ibulis"
+            VALUE "LegalCopyright", "Copyright (C) 2025-2026 六月的雨"
             VALUE "OriginalFilename", "wxNotepad2.exe"
             VALUE "ProductName", "wxNotepad2"
             VALUE "ProductVersion", "2.0.19"
