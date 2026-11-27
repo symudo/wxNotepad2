@@ -1581,7 +1581,7 @@ void MyTreeCtrl::AddWebCollection(const wxString& url, const wxString& title, co
     int order = GetChildrenCount(parentItem);
     int parentID = parentData->GetID();
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
-    auto newItemID = AppendNewRecordToPaths(db, newNoteName, parentID, TreeIcon::ICON_NOTE, order, TreeIcon::ICON_NOTE, -1);
+    auto newItemID = AppendNewRecordToPaths(db, newNoteName, parentID, 0, order, TreeIcon::ICON_NOTE, -1);
     if (newItemID == -1){
         sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
         _wxLogError(L"无法在数据库PATHS中创建新笔记。");
@@ -2309,7 +2309,7 @@ bool MyTreeCtrl::CreateNoteWithContent(const wxString& initialTitle, const wxStr
     }
 
     // 在数据库中插入新笔记路径记录
-    auto newItemID = AppendNewRecordToPaths(db, newNoteName, parentID, TreeIcon::ICON_NOTE, order, TreeIcon::ICON_NOTE, -1);
+    auto newItemID = AppendNewRecordToPaths(db, newNoteName, parentID, 0, order, TreeIcon::ICON_NOTE, -1);
     if (newItemID == -1){
         sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
         _wxLogError(L"无法在数据库PATHS中创建新笔记。");
@@ -2936,9 +2936,37 @@ bool MyTreeCtrl::UpdateNodeOrderForParent(sqlite3* db, wxTreeItemId parentItem){
     return true;
 }
 
+bool MyTreeCtrl::SelectPrevItem(){
+    if (!m_prev.IsOk() || !m_hiddenRoot.IsOk()) {
+        m_prev.Unset();
+        return false;
+    }
+    // 仅从存活根节点向下遍历校验句柄，绝不对可能已被 Delete() 释放的野句柄调用 Win32 API
+    std::vector<wxTreeItemId> stack{ m_hiddenRoot };
+    bool alive = false;
+    while (!stack.empty()) {
+        wxTreeItemId cur = stack.back();
+        stack.pop_back();
+        if (cur == m_prev) {
+            alive = true;
+            break;
+        }
+        wxTreeItemIdValue cookie;
+        for (wxTreeItemId ch = GetFirstChild(cur, cookie); ch.IsOk(); ch = GetNextChild(cur, cookie)) {
+            stack.push_back(ch);
+        }
+    }
+    if (!alive) {
+        m_prev.Unset();
+        return false;
+    }
+    SelectItem(m_prev);
+    return true;
+}
+
 void MyTreeCtrl::PostEventToCardViewPanel(const wxTreeItemId& currentItem){
     auto data = static_cast<MyTreeItemData*>(GetItemData(currentItem));
-    if (!data->IsFolder())return;
+    if (!data || !data->IsFolder())return;
 
     wxTreeEvent evt(EVT_SHOW_NODE_CONTENT, GetId());
     evt.SetItem(currentItem);
@@ -2959,6 +2987,7 @@ void MyTreeCtrl::PostEventToCardViewPanel(const wxTreeItemId& currentItem){
 
     for (auto&& it = GetFirstChild(currentItem, cookie); it.IsOk(); it = GetNextChild(currentItem, cookie)){
         auto childData = static_cast<MyTreeItemData*>(GetItemData(it));
+        if (!childData) continue;
         CardData cardData;
         cardData.id = childData->GetID();
         cardData.treeItemId = it;
@@ -2969,6 +2998,7 @@ void MyTreeCtrl::PostEventToCardViewPanel(const wxTreeItemId& currentItem){
             wxTreeItemIdValue childCookie;
             for (auto&& child = GetFirstChild(it, childCookie); child.IsOk(); child = GetNextChild(it, childCookie)){
                 auto childChildData = static_cast<MyTreeItemData*>(GetItemData(child));
+                if (!childChildData) continue;
                 if (childChildData->IsFolder()){
                     preview += L"[" + childChildData->GetName() + L"]\n";
                 } else{

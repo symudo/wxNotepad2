@@ -350,7 +350,8 @@ private:
 
 
 void MainFrame::OnClipboardUpdate() {
-    if (m_simplebook->GetSelection() != ID_ScintillaPage)return;
+    if (!m_simplebook || m_simplebook->GetSelection() != ID_ScintillaPage)return;
+    if (!m_scintilla || m_scintilla->GetReadOnly())return;
     HWND activeHwnd = ::GetForegroundWindow();
     if (activeHwnd && activeHwnd == m_hMainFrame)return;
 
@@ -363,9 +364,15 @@ void MainFrame::OnClipboardUpdate() {
     }
     wxString lowerTitle = windowTitle.Lower();
 
-    for (const wxString& bannedWord : *m_ClipboardBlackList) {
-        if (lowerTitle.Contains(bannedWord.Lower())) {
-            return;
+    if (m_ClipboardBlackList) {
+        for (const wxString& rawWord : *m_ClipboardBlackList) {
+            wxString bannedWord = rawWord;
+            bannedWord.Trim(true).Trim(false);
+            // 跳过空词条（如配置末尾多写分号），避免 Contains("") 恒为 true 导致剪贴板监听永久失效
+            if (bannedWord.IsEmpty()) continue;
+            if (lowerTitle.Contains(bannedWord.Lower())) {
+                return;
+            }
         }
     }
 
@@ -528,9 +535,15 @@ void MainFrame::CreatMenuBar() {
         quickSwitchMenu->Append(MENU_QUICK_SWITCH_BASE + i, wxString::Format(L"快速切换 %d\tAlt-%d", i + 1, i + 1));
         deleteHotkeyMenu->Append(MENU_DELETE_HOTKEY_BASE + i, wxString::Format(L"删除热键 %d", i + 1));
         assignHotkeyMenu->Append(MENU_ASSIGN_HOTKEY_BASE + i, wxString::Format(L" %d", i + 1));
-        //绑定菜单项点击事件的逻辑，无需判断节点或数组值有效性
-        //有效性在OnUpdateQuickSwitchMenu事件中判断
-        Bind(wxEVT_MENU, [this, i](wxCommandEvent&) {this->m_tree->SelectItem(m_tree->m_idToItem[this->m_quickSwitchMenuIds[i]]); }, MENU_QUICK_SWITCH_BASE + i);
+        // 直接按 Alt+1..9 快捷键触发时可能未经过 OnUpdateQuickSwitchMenu，必须显式校验节点有效性
+        Bind(wxEVT_MENU, [this, i](wxCommandEvent&) {
+            int targetId = this->m_quickSwitchMenuIds[i];
+            if (targetId <= 0 || !this->m_tree) return;
+            auto it = this->m_tree->m_idToItem.find(targetId);
+            if (it != this->m_tree->m_idToItem.end() && it->second.IsOk()) {
+                this->m_tree->SelectItem(it->second);
+            }
+            }, MENU_QUICK_SWITCH_BASE + i);
         Bind(wxEVT_MENU, [this, i](wxCommandEvent&) {
             wxTreeItemId selectedItem = this->m_tree->GetSelection();
             if (selectedItem.IsOk()) {
@@ -944,8 +957,8 @@ void MainFrame::InitBind() {
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->JoinLines(); }, MENU_JOIN_LINES);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->SwitchLine(true); }, MENU_LINE_UP);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->SwitchLine(false); }, MENU_LINE_DOWN);
-    Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->LineDuplicate(); }, MENU_LINE_DUPLICATE);
-    Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_scintilla->LineDelete(); }, MENU_LINE_DELETE);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { if (m_scintilla && !m_scintilla->GetReadOnly()) m_scintilla->LineDuplicate(); }, MENU_LINE_DUPLICATE);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { if (m_scintilla && !m_scintilla->GetReadOnly()) m_scintilla->LineDelete(); }, MENU_LINE_DELETE);
     Bind(wxEVT_MENU, [this](wxCommandEvent& event) {m_scintilla->InsertDateTime(event.GetId() - MENU_INSERT_DATE_TIME1 + 1); }, MENU_INSERT_DATE_TIME1, MENU_INSERT_DATE_TIME3);
     Bind(wxEVT_MENU, [this](wxCommandEvent& event) {
         wxArrayString serials;
@@ -957,7 +970,7 @@ void MainFrame::InitBind() {
         case MENU_INSERT_SERIALS_2:
             serials = { L"①",L"②",L"③",L"④",L"⑤",L"⑥",L"⑦",L"⑧",L"⑨",L"⑩" }; break;
         case MENU_INSERT_SERIALS_3:
-            serials = { L"I.", L"II.", L"III.", L"IV.", L"V.", L"VI.", L"VII.", L"VIII.", L"IX.", L"X.", L"XI.", L"XII.", L"XIII.", L"XIV.", L"XV.", L"XVI.", L"XVIII.", L"XIX.", L"XX." }; break;
+            serials = { L"I.", L"II.", L"III.", L"IV.", L"V.", L"VI.", L"VII.", L"VIII.", L"IX.", L"X.", L"XI.", L"XII.", L"XIII.", L"XIV.", L"XV.", L"XVI.", L"XVII.", L"XVIII.", L"XIX.", L"XX." }; break;
         case MENU_INSERT_SERIALS_4:
             serials = { L"a.",L"b.",L"c.",L"d.",L"e.",L"f.",L"g.",L"h.",L"i.",L"j.",L"k.",L"l.",L"m.",L"n.",L"o.",L"p.",L"q.",L"r.",L"s.",L"t.",L"u.",L"v.",L"w.",L"x.",L"y.",L"z." }; break;
         }
@@ -967,7 +980,7 @@ void MainFrame::InitBind() {
     Bind(wxEVT_MENU, &MainFrame::OnEditTags, this, MENU_EDIT_TAGS);
     //导航菜单
     Bind(wxEVT_MENU, &MainFrame::OnToggleTree, this, MENU_TOGGLE_TREE);
-    Bind(wxEVT_MENU, [this](wxCommandEvent&) {if (m_tree->m_prev)m_tree->SelectItem(m_tree->m_prev); }, MENU_PREV_VIEW);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { if (m_tree) m_tree->SelectPrevItem(); }, MENU_PREV_VIEW);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_tree->ExpandAll(); }, MENU_EXPAND_ALL);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {m_tree->CollapseAll(); }, MENU_COLLAPSE_ALL);
     Bind(wxEVT_MENU, [this](wxCommandEvent& event) {if (m_showTags) { m_tree->OnHideTags(event); } else { m_tree->OnShowTags(event); }}, MENU_SHOW_TAGS);

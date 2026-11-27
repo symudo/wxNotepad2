@@ -1637,22 +1637,24 @@ void MySTC::OnStcCharAdded(wxStyledTextEvent& event) {
             double dExprEval = 0.0;
             int exprErr = 1;
             while (p < end && exprErr) {
-                // 跳过非 ASCII 字符
+                // 跳过非 ASCII 字符（严格带 p < end 边界守卫）
                 if ((*p & 0x80) != 0) {
-                    do {
+                    while (p < end && (*p & 0x80) != 0) {
                         ++p;
-                    } while ((*p & 0x80) != 0);
+                    }
                     continue;
                 }
                 dExprEval = te_interp(p, &exprErr);
                 if (exprErr) {
-                    // 如果求值出错，将指针移到下一个可能的表达式起点
-                    while (++p < end && !(te_is_num(p) || te_is_op(p))) {
-                        // 再次跳过非 ASCII 字符
+                    // 求值失败时推进至下一个数字或运算符起点（跳过非 ASCII 后不再多吃一个数字）
+                    ++p;
+                    while (p < end && !(te_is_num(p) || te_is_op(p))) {
                         if ((*p & 0x80) != 0) {
-                            do {
+                            while (p < end && (*p & 0x80) != 0) {
                                 ++p;
-                            } while ((*p & 0x80) != 0);
+                            }
+                        } else {
+                            ++p;
                         }
                     }
                 }

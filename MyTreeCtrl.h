@@ -106,6 +106,7 @@ public:
     void OnChangeNoteTags(wxTreeEvent& event);
     inline int GetTreeItemType(wxTreeItemId item);
     void RestoreNoteContent();//通过重新发送事件来还原笔记内容
+    bool SelectPrevItem();
     std::unordered_set<int> GetNoteTagList(sqlite3* db, int pathID);
     //菜单方法
     void OnEmptyRecycleBin(wxCommandEvent& event);
