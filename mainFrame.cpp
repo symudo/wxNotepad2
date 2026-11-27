@@ -794,9 +794,9 @@ MainFrame::MainFrame(const wxString& title) : wxFrame(NULL, wxID_ANY, title) {
     //剪贴板监听黑名单
     SetClipboardBlackList();
 
-    wxIcon appIcon;
-    if (appIcon.LoadFile(wxT("MAINICON"))) {
-        SetIcon(appIcon);
+    wxIconBundle appIcons(wxT("MAINICON"), wxBITMAP_TYPE_ICO_RESOURCE);
+    if (!appIcons.IsEmpty()) {
+        SetIcons(appIcons);
     }
     // 设置窗口大小和位置
     int x = config->ReadLong("MainWindow/X", 100);

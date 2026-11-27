@@ -626,6 +626,7 @@ void MyTreeCtrl::OnChangeNoteTags(wxTreeEvent& event){
         if (existID == -1){
             //不存在新tag，先添加
             int newTagID = AddNewTag(db, tagName);
+            if (newTagID <= 0) continue;
             m_TagsList[newTagID] = tagName;
             //bug修正：只有tags根节点显示时才添加实际节点
             if (m_idToItem.count(TagsRootID) && m_idToItem[TagsRootID].IsOk()){
@@ -2108,12 +2109,10 @@ void MyTreeCtrl::ExportNode(const wxString& currentBaseDir, const wxTreeItemId& 
 }
 
 void MyTreeCtrl::OnEmptyRecycleBin(wxCommandEvent& event){
-    //处理焦点
-    auto currentItem = GetSelection();
-    int itemType = GetTreeItemType(currentItem);
-    if (itemType != TrashItemID){
-        SelectItem(m_idToItem[TrashRootID]);
-        currentItem = m_idToItem[TrashRootID];
+    //处理焦点：无论当前是否停留在回收站子项，清空前都切回回收站根节点，防止后续事件携带已删除子项的失效句柄
+    auto currentItem = m_idToItem[TrashRootID];
+    if (GetSelection() != currentItem){
+        SelectItem(currentItem);
     }
 
     sqlite3* db = GetMyAppInstance()->db;
